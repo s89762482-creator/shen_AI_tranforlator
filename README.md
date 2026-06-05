@@ -4,7 +4,9 @@
 基于AI的同声传译助手，支持英文视频实时翻译
 
 ## 依赖说明
-- 待补充
+### 安装依赖
+```bash
+pip install -r requirements.txt
 
 ## 原创功能说明
 - 待补充
