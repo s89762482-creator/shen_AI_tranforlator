@@ -1,4 +1,13 @@
+# 异步支持（Python 3.7+ 内置，无需额外安装）
+#asyncio
+# 核心依赖
 sounddevice
 numpy
 aiohttp
+python-dotenv
+
+# TTS 语音合成
+edge-tts
+
+# UI 界面
 streamlit
