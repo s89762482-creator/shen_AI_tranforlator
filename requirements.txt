@@ -1,3 +1,5 @@
+# 异步支持（Python 3.7+ 内置，无需额外安装）
+#asyncio
 # 核心依赖
 sounddevice
 numpy
@@ -9,6 +11,3 @@ edge-tts
 
 # UI 界面
 streamlit
-
-# 异步支持（Python 3.7+ 内置，无需额外安装）
-#asyncio
