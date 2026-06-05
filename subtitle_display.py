@@ -1,3 +1,5 @@
+
+from subtitle_manager import SubtitleManager, SubtitleEntry
 """
 字幕显示模块 - 双语字幕 UI (Streamlit 版本)
 
@@ -309,6 +311,50 @@ def run_standalone():
                     new_translations={"zh": "我去了银行"}
                 )
 
+
+def run_standalone():
+    """独立运行测试"""
+    st.set_page_config(
+        page_title="AI同声传译助手",
+        page_icon="🤖",
+        layout="wide"
+    )
+
+    # 导入 SubtitleManager
+    from subtitle_manager import SubtitleManager
+
+    render_subtitle_ui()
+
+    # 测试数据（仅用于演示）
+    manager = SubtitleManager()
+
+    # 将 manager 存储到 session state
+    if "subtitle_entries" not in st.session_state:
+        st.session_state.subtitle_entries = manager.entries
+    if "subtitle_counter" not in st.session_state:
+        st.session_state.subtitle_counter = manager._counter
+
+    # 如果没有任何字幕，添加测试数据
+    if len(manager.entries) == 0:
+        test_entries = [
+            ("Hello world", {"zh": "你好，世界", "en": "Hello world", "ja": "こんにちは世界", "de": "Hallo Welt"}),
+            ("How are you", {"zh": "你好吗", "en": "How are you", "ja": "お元気ですか", "de": "Wie geht es dir"}),
+            ("I went to the bank",
+             {"zh": "我去了银行", "en": "I went to the bank", "ja": "銀行に行きました", "de": "Ich ging zur Bank"}),
+        ]
+
+        for source, trans in test_entries:
+            manager.add_subtitle(source, trans)
+
+        # 模拟修正
+        time.sleep(0.1)
+        for entry in manager.entries:
+            if "bench" in entry.source_text:
+                manager.update_subtitle(
+                    entry.id,
+                    new_source="I went to the bank",
+                    new_translations={"zh": "我去了银行"}
+                )
 
 if __name__ == "__main__":
     run_standalone()
