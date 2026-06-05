@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>翻译字幕</title>
+    <style>
+        :root {
+            --bg-primary: rgba(22, 22, 30, 0.82);
+            --bg-status: rgba(10, 10, 16, 0.85);
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.5);
+            --text-muted: rgba(255, 255, 255, 0.35);
+            --accent: #5eeadb;
+            --accent-glow: rgba(94, 234, 219, 0.35);
+            --border: rgba(255, 255, 255, 0.06);
+            --border-strong: rgba(255, 255, 255, 0.12);
+            --shadow-lg: 0 30px 70px rgba(0, 0, 0, 0.6);
+            --radius-xl: 20px;
+            --radius-full: 9999px;
+            --transition-smooth: cubic-bezier(0.22, 0.61, 0.36, 1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            background: transparent;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Inter', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+            -webkit-font-smoothing: antialiased;
+            -webkit-app-region: drag;
+        }
+
+        .close-btn {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 100000;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-app-region: no-drag;
+        }
+
+        .close-btn:hover {
+            background: #ff5f56;
+            transform: scale(1.15);
+        }
+
+        .overlay-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            top: 0;
+            z-index: 99999;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 12px;
+            padding-bottom: 20px;
+        }
+
+        .lang-badge {
+            position: fixed;
+            top: 8px;
+            right: 8px;
+            z-index: 99999;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-status);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-full);
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            letter-spacing: 0.3px;
+        }
+
+        .caption-card {
+            background: var(--bg-primary);
+            backdrop-filter: blur(50px) saturate(200%);
+            -webkit-backdrop-filter: blur(50px) saturate(200%);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-xl);
+            padding: 18px 26px;
+            box-shadow: var(--shadow-lg);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 75vw;
+            min-width: 150px;
+            transition: all 0.35s var(--transition-smooth);
+        }
+
+        .caption-original {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 400;
+            line-height: 1.5;
+            min-height: 20px;
+            text-align: center;
+            opacity: 0;
+            transform: translateY(6px);
+            transition: all 0.35s var(--transition-smooth);
+        }
+
+        .caption-original.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .caption-original:empty { display: none; }
+
+        .caption-divider {
+            width: 32px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+            margin: 0 auto;
+            border-radius: 1px;
+        }
+
+        .caption-translated {
+            color: var(--text-primary);
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1.35;
+            letter-spacing: -0.2px;
+            min-height: 28px;
+            text-align: center;
+            text-shadow: 0 0 35px var(--accent-glow), 0 0 70px rgba(94, 234, 219, 0.12);
+            opacity: 0;
+            transform: translateY(4px);
+            transition: all 0.3s var(--transition-smooth);
+        }
+
+        .caption-translated.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .caption-translated:empty::after {
+            content: '';
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background: var(--accent);
+            margin-left: 1px;
+            vertical-align: text-bottom;
+            animation: cursorBlink 0.7s step-end infinite;
+            border-radius: 1px;
+            box-shadow: 0 0 6px var(--accent-glow);
+        }
+
+        @keyframes cursorBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        .caption-translated.done:empty::after { display: none; }
+        .caption-translated.done { text-shadow: 0 0 15px rgba(255, 255, 255, 0.05); }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            background: var(--bg-status);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-full);
+            padding: 6px 14px;
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .pulse-dot {
+            position: relative;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #34d399;
+            flex-shrink: 0;
+        }
+
+        .pulse-dot::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            background: rgba(52, 211, 153, 0.25);
+            animation: pulseRing 2s ease-in-out infinite;
+        }
+
+        .pulse-dot::after {
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border-radius: 50%;
+            background: rgba(52, 211, 153, 0.08);
+            animation: pulseRing 2s ease-in-out infinite 0.4s;
+        }
+
+        @keyframes pulseRing {
+            0% { transform: scale(0.8); opacity: 1; }
+            100% { transform: scale(1.8); opacity: 0; }
+        }
+
+        .pulse-dot.inactive { background: #6b7280; }
+        .pulse-dot.inactive::before,
+        .pulse-dot.inactive::after { animation: none; opacity: 0; }
+
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(16px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .overlay-container.entering .caption-card {
+            animation: fadeSlideUp 0.5s var(--transition-smooth) forwards;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-primary: rgba(255, 255, 255, 0.65);
+                --bg-status: rgba(255, 255, 255, 0.75);
+                --text-primary: #0f172a;
+                --text-secondary: rgba(15, 23, 42, 0.5);
+                --text-muted: rgba(15, 23, 42, 0.35);
+                --border: rgba(0, 0, 0, 0.05);
+                --border-strong: rgba(0, 0, 0, 0.08);
+                --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <button class="close-btn" id="closeBtn" title="关闭"></button>
+
+    <div class="lang-badge" id="langBadge">
+        <span id="langText">🌐 翻译中...</span>
+    </div>
+
+    <div class="overlay-container entering" id="overlayContainer">
+        <div class="caption-card">
+            <div class="caption-original" id="originalText"></div>
+            <div class="caption-divider"></div>
+            <div class="caption-translated" id="translatedText"></div>
+        </div>
+        <div class="status-bar" id="statusBar">
+            <div class="pulse-dot active" id="pulseDot"></div>
+            <span id="statusLabel">监听中</span>
+        </div>
+    </div>
+
+    <script>
+        const channel = new BroadcastChannel('translator-captions');
+        const originalText = document.getElementById('originalText');
+        const translatedText = document.getElementById('translatedText');
+        const statusLabel = document.getElementById('statusLabel');
+        const pulseDot = document.getElementById('pulseDot');
+        const langText = document.getElementById('langText');
+        const closeBtn = document.getElementById('closeBtn');
+
+        let translationTimeout = null;
+
+        closeBtn.addEventListener('click', () => window.close());
+
+        channel.onmessage = (event) => {
+            const data = event.data;
+            switch (data.type) {
+                case 'original':
+                    originalText.textContent = data.text;
+                    originalText.classList.add('visible');
+                    break;
+                case 'translation':
+                    translatedText.textContent = data.text;
+                    translatedText.classList.remove('done');
+                    translatedText.classList.add('visible');
+                    if (translationTimeout) clearTimeout(translationTimeout);
+                    break;
+                case 'translation-done':
+                    translatedText.classList.add('done');
+                    translationTimeout = setTimeout(() => {
+                        originalText.classList.remove('visible');
+                        originalText.textContent = '';
+                    }, 5000);
+                    break;
+                case 'status':
+                    if (data.running) {
+                        statusLabel.textContent = '监听中';
+                        pulseDot.classList.remove('inactive');
+                    } else {
+                        statusLabel.textContent = '已停止';
+                        pulseDot.classList.add('inactive');
+                    }
+                    break;
+                case 'lang':
+                    langText.textContent = data.text;
+                    break;
+                case 'close':
+                    window.close();
+                    break;
+            }
+        };
+
+        window.addEventListener('beforeunload', () => {
+            channel.postMessage({ type: 'overlay-closed' });
+        });
+    </script>
+</body>
+</html>

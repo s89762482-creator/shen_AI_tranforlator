@@ -181,12 +181,20 @@ def render_subtitle_ui():
         # 控制按钮
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("⏸️ 暂停" if not st.session_state.paused else "▶️ 恢复", use_container_width=True):
+            if st.button(
+                    "⏸️ 暂停" if not st.session_state.paused else "▶️ 恢复",
+                    key="subtitle_pause_btn",
+                    use_container_width=True
+            ):
                 manager.toggle_pause()
                 st.rerun()
 
         with col2:
-            if st.button("🗑️ 清空", use_container_width=True):
+            if st.button(
+                    "🗑️ 清空",
+                    key="subtitle_clear_btn",
+                    use_container_width=True
+            ):
                 manager.clear()
                 st.rerun()
 

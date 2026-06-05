@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 同声传译助手</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🎙️ AI 同声传译助手</h1>
+            <p>实时英文识别 · 流式多语言翻译 · 悬浮字幕</p>
+        </header>
+
+        <div class="source-selector">
+            <span class="source-label">🔉 音频来源：</span>
+            <button class="source-btn active" data-source="mic">🎤 麦克风</button>
+            <button class="source-btn" data-source="system">💻 系统音频</button>
+        </div>
+
+        <div class="video-hint" id="videoHint">
+            <div class="hint-icon">📺</div>
+            <div class="hint-steps">
+                <strong>系统音频模式：</strong><br>
+                1. 打开任意英文视频并播放<br>
+                2. 点击 <strong>"开始监听"</strong><br>
+                3. 选择 <strong>"浏览器标签页"</strong><br>
+                4. ⚠️ 务必勾选 <strong>"分享系统音频"</strong><br>
+                5. 翻译字幕将自动悬浮显示
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <button class="btn btn-start" id="startBtn">
+                <span id="btnIcon">▶️</span>
+                <span id="btnText">开始监听</span>
+            </button>
+
+            <div class="language-selector" id="languageSelector"></div>
+
+            <div class="mode-selector">
+                <button class="mode-btn active" data-mode="subtitle">📝 字幕</button>
+                <button class="mode-btn" data-mode="voice">🔊 语音</button>
+                <button class="mode-btn" data-mode="both">📝🔊 混合</button>
+            </div>
+
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">待机中</span>
+            </div>
+        </div>
+
+        <div class="subtitle-container">
+            <div class="subtitle-label">🔤 实时翻译字幕</div>
+            <div class="subtitle-original" id="originalText">等待语音输入...</div>
+            <div class="subtitle-translated" id="translatedText"></div>
+        </div>
+
+        <div class="engine-indicator">
+            引擎：<span id="engineName">检测中...</span>
+        </div>
+
+        <div class="history-container">
+            <div class="history-header">
+                <span class="history-title">📋 翻译历史</span>
+                <button class="btn-clear" id="clearHistoryBtn">🗑️ 清空</button>
+            </div>
+            <div id="historyList">
+                <div class="history-empty">开始翻译后，历史记录将在此显示</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/translator.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
