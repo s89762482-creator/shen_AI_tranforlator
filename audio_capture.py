@@ -89,7 +89,7 @@ class AudioCapture:
             print(f"设备 {device_id} 不存在，使用当前设备")
             return False
 
-    def _get_device_name(self, device_id: Optional[int]) -> str:
+    def _get_device_name(self, device_id) -> str:
         """获取设备名称"""
         if device_id is None:
             return "默认设备"
@@ -148,7 +148,7 @@ class AudioCapture:
 
         try:
             # 配置音频流参数
-            device = self._device_id
+            device = self._device_id if self._device_id != -1 else None
             samplerate = Config.SAMPLE_RATE
             blocksize = Config.CHUNK_SIZE
 
@@ -207,14 +207,14 @@ async def test_audio():
     print("测试音频捕获模块...")
 
     capture = AudioCapture()
+    capture.set_device(1)
 
     # 列出可用设备
     capture.list_devices()
 
     # 设置回调函数
-    def test_callback(data):
+    async def test_callback(data):
         print(f"收到音频数据: {data.shape}, 范围: [{data.min():.3f}, {data.max():.3f}]")
-
     capture.set_callback(test_callback)
 
     # 启动捕获
