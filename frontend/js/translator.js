@@ -27,17 +27,36 @@ const Translator = {
     initChannel() {
         try {
             this._channel = new BroadcastChannel('translator-captions');
-        } catch (e) {}
+            console.log('[Translator] BroadcastChannel 已初始化');
+        } catch (e) {
+            console.error('[Translator] BroadcastChannel 初始化失败:', e);
+        }
     },
 
     _broadcast(type, data = {}) {
-        if (this._channel) this._channel.postMessage({ type, ...data });
+        if (this._channel) {
+            console.log('[Translator] 发送消息:', { type, ...data });
+            this._channel.postMessage({ type, ...data });
+        }
     },
 
     setTargetLang(langCode) {
         this.targetLang = langCode;
-        const langNames = { zh: '🇨🇳 中文', en: '🇺🇸 English', ja: '🇯🇵 日本語' };
-        this._broadcast('lang', { text: langNames[langCode] || langCode });
+        const langNames = { 
+            zh: '🇨🇳 中文', 
+            en: '🇺🇸 English', 
+            ja: '🇯🇵 日本語' 
+        };
+        const langLabels = {
+            zh: 'ZH',
+            en: 'EN', 
+            ja: 'JA'
+        };
+        this._broadcast('lang', { 
+            text: langNames[langCode] || langCode,
+            code: langLabels[langCode] || langCode
+        });
+        console.log('[Translator] 目标语言已切换为:', langCode);
     },
 
     async processAudio(audioBlob) {

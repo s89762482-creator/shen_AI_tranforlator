@@ -26,75 +26,32 @@
         html, body {
             background: transparent;
             font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Inter', sans-serif;
-            height: 100vh;
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
             overflow: hidden;
             user-select: none;
             -webkit-font-smoothing: antialiased;
-            -webkit-app-region: drag;
         }
 
-        .close-btn {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            z-index: 100000;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            cursor: pointer;
-            transition: all 0.2s;
-            -webkit-app-region: no-drag;
-        }
-
-        .close-btn:hover {
-            background: #ff5f56;
-            transform: scale(1.15);
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .overlay-container {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            top: 0;
-            z-index: 99999;
-            pointer-events: none;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 12px;
-            padding-bottom: 20px;
-        }
-
-        .lang-badge {
-            position: fixed;
-            top: 8px;
-            right: 8px;
-            z-index: 99999;
-            pointer-events: none;
             display: flex;
             align-items: center;
-            gap: 6px;
-            background: var(--bg-status);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-full);
-            padding: 6px 12px;
-            font-size: 11px;
-            font-weight: 500;
-            color: var(--text-secondary);
-            letter-spacing: 0.3px;
+            justify-content: center;
         }
 
         .caption-card {
             background: var(--bg-primary);
             backdrop-filter: blur(50px) saturate(200%);
             -webkit-backdrop-filter: blur(50px) saturate(200%);
-            border: 1px solid var(--border-strong);
+            border: none;
             border-radius: var(--radius-xl);
             padding: 18px 26px;
             box-shadow: var(--shadow-lg);
@@ -173,59 +130,6 @@
         .caption-translated.done:empty::after { display: none; }
         .caption-translated.done { text-shadow: 0 0 15px rgba(255, 255, 255, 0.05); }
 
-        .status-bar {
-            display: flex;
-            align-items: center;
-            gap: 7px;
-            background: var(--bg-status);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-full);
-            padding: 6px 14px;
-            font-size: 10px;
-            font-weight: 500;
-            color: var(--text-muted);
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        }
-
-        .pulse-dot {
-            position: relative;
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: #34d399;
-            flex-shrink: 0;
-        }
-
-        .pulse-dot::before {
-            content: '';
-            position: absolute;
-            inset: -4px;
-            border-radius: 50%;
-            background: rgba(52, 211, 153, 0.25);
-            animation: pulseRing 2s ease-in-out infinite;
-        }
-
-        .pulse-dot::after {
-            content: '';
-            position: absolute;
-            inset: -8px;
-            border-radius: 50%;
-            background: rgba(52, 211, 153, 0.08);
-            animation: pulseRing 2s ease-in-out infinite 0.4s;
-        }
-
-        @keyframes pulseRing {
-            0% { transform: scale(0.8); opacity: 1; }
-            100% { transform: scale(1.8); opacity: 0; }
-        }
-
-        .pulse-dot.inactive { background: #6b7280; }
-        .pulse-dot.inactive::before,
-        .pulse-dot.inactive::after { animation: none; opacity: 0; }
-
         @keyframes fadeSlideUp {
             from { opacity: 0; transform: translateY(16px) scale(0.97); }
             to { opacity: 1; transform: translateY(0) scale(1); }
@@ -250,21 +154,11 @@
     </style>
 </head>
 <body>
-    <button class="close-btn" id="closeBtn" title="关闭"></button>
-
-    <div class="lang-badge" id="langBadge">
-        <span id="langText">🌐 翻译中...</span>
-    </div>
-
     <div class="overlay-container entering" id="overlayContainer">
         <div class="caption-card">
             <div class="caption-original" id="originalText"></div>
             <div class="caption-divider"></div>
             <div class="caption-translated" id="translatedText"></div>
-        </div>
-        <div class="status-bar" id="statusBar">
-            <div class="pulse-dot active" id="pulseDot"></div>
-            <span id="statusLabel">监听中</span>
         </div>
     </div>
 
@@ -272,26 +166,30 @@
         const channel = new BroadcastChannel('translator-captions');
         const originalText = document.getElementById('originalText');
         const translatedText = document.getElementById('translatedText');
-        const statusLabel = document.getElementById('statusLabel');
-        const pulseDot = document.getElementById('pulseDot');
-        const langText = document.getElementById('langText');
-        const closeBtn = document.getElementById('closeBtn');
 
         let translationTimeout = null;
 
-        closeBtn.addEventListener('click', () => window.close());
+        translatedText.textContent = '等待翻译...';
+        translatedText.classList.add('visible');
+
+        console.log('[Overlay] 悬浮窗已启动，等待数据...');
 
         channel.onmessage = (event) => {
+            console.log('[Overlay] 收到消息:', event.data);
             const data = event.data;
             switch (data.type) {
                 case 'original':
-                    originalText.textContent = data.text;
-                    originalText.classList.add('visible');
+                    if (data.text) {
+                        originalText.textContent = data.text;
+                        originalText.classList.add('visible');
+                    }
                     break;
                 case 'translation':
-                    translatedText.textContent = data.text;
-                    translatedText.classList.remove('done');
-                    translatedText.classList.add('visible');
+                    if (data.text) {
+                        translatedText.textContent = data.text;
+                        translatedText.classList.remove('done');
+                        translatedText.classList.add('visible');
+                    }
                     if (translationTimeout) clearTimeout(translationTimeout);
                     break;
                 case 'translation-done':
@@ -300,18 +198,6 @@
                         originalText.classList.remove('visible');
                         originalText.textContent = '';
                     }, 5000);
-                    break;
-                case 'status':
-                    if (data.running) {
-                        statusLabel.textContent = '监听中';
-                        pulseDot.classList.remove('inactive');
-                    } else {
-                        statusLabel.textContent = '已停止';
-                        pulseDot.classList.add('inactive');
-                    }
-                    break;
-                case 'lang':
-                    langText.textContent = data.text;
                     break;
                 case 'close':
                     window.close();

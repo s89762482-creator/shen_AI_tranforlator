@@ -64,8 +64,6 @@ const App = {
             this.isRunning = running;
             this._updateUIState();
             Translator._broadcast('status', { running });
-            if (running && AudioCapture.audioSource === 'system') this._openOverlay();
-            else if (!running) this._closeOverlay();
         };
         Translator.onOriginalText = (text) => { this.elements.originalText.textContent = text; };
         Translator.onTranslatedToken = (t) => { this.elements.translatedText.textContent = t; };
@@ -75,9 +73,32 @@ const App = {
     },
 
     async _toggleTranslation() {
-        if (this.isRunning) { AudioCapture.stop(); return; }
+        if (this.isRunning) { 
+            AudioCapture.stop(); 
+            // 停止监听时关闭悬浮窗
+            const source = (document.querySelector('.source-btn.active') || {}).dataset?.source || 'mic';
+            if (source === 'system') {
+                try {
+                    const result = await API.stopOverlay();
+                    console.log('[App] 悬浮窗关闭结果:', result);
+                } catch (e) {
+                    console.error('[App] 关闭悬浮窗失败:', e);
+                }
+            }
+            return; 
+        }
         const source = (document.querySelector('.source-btn.active') || {}).dataset?.source || 'mic';
-        try { await AudioCapture.start(source); }
+        try { 
+            await AudioCapture.start(source);
+            if (source === 'system') {
+                try {
+                    const result = await API.startOverlay();
+                    console.log('[App] 悬浮窗启动结果:', result);
+                } catch (e) {
+                    console.error('[App] 启动悬浮窗失败:', e);
+                }
+            }
+        }
         catch (error) { alert('启动失败，请检查权限设置。'); }
     },
 
@@ -134,10 +155,10 @@ const App = {
 
     _openOverlay() {
         if (this.overlayWindow && !this.overlayWindow.closed) { this.overlayWindow.focus(); return; }
-        const w = 600, h = 280;
-        this.overlayWindow = window.open('/caption-overlay.html', 'TranslatorCaptions',
+        const w = 650, h = 160;
+        this.overlayWindow = window.open('/caption-overlay.html', '_blank',
             `width=${w},height=${h},left=${(screen.width-w)/2},top=${screen.height-h-80},` +
-            'frame=false,titlebar=false,menubar=false,toolbar=false,location=false,status=false,resizable=false,alwaysOnTop=true');
+            'toolbar=0,location=0,menubar=0,status=0,scrollbars=0,resizable=0');
         const t = setInterval(() => { if (this.overlayWindow?.closed) { clearInterval(t); this.overlayWindow = null; } }, 500);
     },
 

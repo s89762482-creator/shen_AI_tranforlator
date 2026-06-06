@@ -67,4 +67,6 @@ const API = {
     },
     async getHistory() { return this.get(CONFIG.ENDPOINTS.HISTORY); },
     async clearHistory() { return this.delete(CONFIG.ENDPOINTS.HISTORY); },
+    async startOverlay() { return this.post('/api/overlay/start'); },
+async stopOverlay() { return this.post('/api/overlay/stop'); },
 };

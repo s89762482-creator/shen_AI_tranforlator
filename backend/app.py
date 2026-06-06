@@ -7,6 +7,7 @@ import os
 import json
 import io
 import tempfile
+import subprocess
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
@@ -116,28 +117,36 @@ def transcribe_audio():
         audio_path = tmp.name
 
     try:
+        print(f"[Transcribe] 收到音频数据，大小: {len(audio_data)} 字节")
+        
         if os.path.exists(VOSK_MODEL_PATH):
+            print("[Transcribe] 尝试 Vosk 识别...")
             text = _transcribe_with_vosk(audio_path)
             if text:
                 os.unlink(audio_path)
-                # WebSocket 推送识别结果
+                print(f"[Transcribe] Vosk 识别成功: {text}")
                 socketio.emit('recognition', {'text': text, 'engine': 'vosk'})
                 return jsonify({
                     "success": True,
                     "data": {"text": text, "engine": "vosk"}
                 })
+            print("[Transcribe] Vosk 识别结果为空")
 
         if openai_client:
+            print("[Transcribe] 尝试 Whisper 识别...")
             text = _transcribe_with_whisper(audio_path)
             if text:
                 os.unlink(audio_path)
+                print(f"[Transcribe] Whisper 识别成功: {text}")
                 socketio.emit('recognition', {'text': text, 'engine': 'whisper-1'})
                 return jsonify({
                     "success": True,
                     "data": {"text": text, "engine": "whisper-1"}
                 })
+            print("[Transcribe] Whisper 识别结果为空")
 
         os.unlink(audio_path)
+        print("[Transcribe] 所有语音识别方案均失败")
         return jsonify({"success": False, "error": "所有语音识别方案均失败"}), 500
 
     except Exception as e:
@@ -250,9 +259,9 @@ def translate_stream():
                 if chunk.choices[0].delta.content:
                     token = chunk.choices[0].delta.content
                     full_text += token
+                    socketio.emit('token', {'token': token})
                     yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
 
-            # WebSocket 推送完整翻译
             socketio.emit('translation', {
                 'original': text,
                 'translated': full_text,
@@ -301,16 +310,128 @@ def clear_history():
     return jsonify({"success": True, "message": f"已清空 {count} 条"})
 
 
+# ==================== 悬浮窗控制 ====================
+
+@app.route("/api/overlay/start", methods=["POST"])
+def start_overlay():
+    overlay_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'overlay', 'overlay_app.py')
+    overlay_pid_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'overlay.pid')
+    
+    # 检查 overlay.lock 文件（由 overlay_app.py 创建）
+    overlay_lock_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'overlay', 'overlay.lock')
+    if os.path.exists(overlay_lock_file):
+        try:
+            with open(overlay_lock_file, 'r') as f:
+                lock_pid = int(f.read().strip())
+            # 检查进程是否仍在运行
+            if os.name == 'nt':
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                handle = kernel32.OpenProcess(1, False, lock_pid)
+                if handle != 0:
+                    kernel32.CloseHandle(handle)
+                    return jsonify({"success": True, "message": "悬浮窗已存在"})
+            os.remove(overlay_lock_file)
+        except:
+            try:
+                os.remove(overlay_lock_file)
+            except:
+                pass
+    
+    if os.path.exists(overlay_pid_file):
+        try:
+            with open(overlay_pid_file, 'r') as f:
+                pid = int(f.read().strip())
+            if os.name == 'nt':
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                handle = kernel32.OpenProcess(1, False, pid)
+                if handle != 0:
+                    kernel32.CloseHandle(handle)
+                    return jsonify({"success": True, "message": "悬浮窗已存在"})
+                os.remove(overlay_pid_file)
+            else:
+                if os.path.exists(f'/proc/{pid}'):
+                    return jsonify({"success": True, "message": "悬浮窗已存在"})
+                os.remove(overlay_pid_file)
+        except:
+            if os.path.exists(overlay_pid_file):
+                os.remove(overlay_pid_file)
+    
+    if os.path.exists(overlay_path):
+        try:
+            proc = subprocess.Popen(['python', overlay_path], 
+                                    creationflags=subprocess.CREATE_NO_WINDOW,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+            with open(overlay_pid_file, 'w') as f:
+                f.write(str(proc.pid))
+            print(f"[Backend] 悬浮窗进程已启动，PID: {proc.pid}")
+            return jsonify({"success": True, "message": "悬浮窗已启动", "pid": proc.pid})
+        except Exception as e:
+            print(f"[Backend] 启动悬浮窗失败: {e}")
+            return jsonify({"success": False, "error": str(e)}), 500
+    return jsonify({"success": False, "error": "悬浮窗程序不存在"}), 404
+
+
+@app.route("/api/overlay/stop", methods=["POST"])
+def stop_overlay():
+    overlay_pid_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'overlay.pid')
+    overlay_lock_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'overlay', 'overlay.lock')
+    
+    success = False
+    message = "悬浮窗未运行"
+    
+    if os.path.exists(overlay_pid_file):
+        try:
+            with open(overlay_pid_file, 'r') as f:
+                pid = int(f.read().strip())
+            
+            if os.name == 'nt':
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                handle = kernel32.OpenProcess(1, False, pid)
+                if handle != 0:
+                    # 发送关闭消息
+                    try:
+                        socketio.emit('close_overlay', {})
+                    except:
+                        pass
+                    # 强制终止进程
+                    kernel32.TerminateProcess(handle, 0)
+                    kernel32.CloseHandle(handle)
+                    success = True
+                    message = "悬浮窗已关闭"
+            
+            os.remove(overlay_pid_file)
+            print(f"[Backend] 悬浮窗进程已终止，PID: {pid}")
+            
+        except Exception as e:
+            print(f"[Backend] 终止悬浮窗进程失败: {e}")
+            try:
+                os.remove(overlay_pid_file)
+            except:
+                pass
+    
+    if os.path.exists(overlay_lock_file):
+        try:
+            os.remove(overlay_lock_file)
+        except:
+            pass
+    
+    return jsonify({"success": success, "message": message})
+
+
 # ==================== 启动 ====================
 
 if __name__ == "__main__":
     port = int(os.getenv("FLASK_PORT", 5000))
-    debug = os.getenv("FLASK_DEBUG", "true").lower() == "true"
+    debug = False
 
     if os.path.exists(VOSK_MODEL_PATH):
-        print(f"✅ Vosk 模型已就绪: {VOSK_MODEL_PATH}")
+        print("[OK] Vosk 模型已就绪:", VOSK_MODEL_PATH)
     else:
-        print(f"⚠️ Vosk 模型未找到: {VOSK_MODEL_PATH}")
+        print("[WARN] Vosk 模型未找到:", VOSK_MODEL_PATH)
 
-    print(f"🚀 服务启动: http://localhost:{port}")
+    print("[RUN] 服务启动: http://localhost:", port)
     socketio.run(app, host="0.0.0.0", port=port, debug=debug, allow_unsafe_werkzeug=True)
