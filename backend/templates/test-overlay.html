@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>测试悬浮窗</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { 
+            padding: 10px 20px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            margin: 5px;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        #log { 
+            margin-top: 20px; 
+            padding: 10px; 
+            background: #f5f5f5; 
+            border: 1px solid #ddd;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>悬浮窗测试</h1>
+    <button onclick="startOverlay()">启动悬浮窗</button>
+    <button onclick="testAPI()">测试 API</button>
+    
+    <div id="log"></div>
+    
+    <script>
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const p = document.createElement('p');
+            p.className = type;
+            p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(p);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        async function testAPI() {
+            log('测试 API 调用...');
+            try {
+                const response = await fetch('/api/overlay/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                log(`API 响应: ${JSON.stringify(data)}`, 'success');
+            } catch (error) {
+                log(`API 错误: ${error.message}`, 'error');
+            }
+        }
+        
+        async function startOverlay() {
+            log('启动悬浮窗...');
+            await testAPI();
+        }
+        
+        log('页面已加载');
+    </script>
+</body>
+</html>
