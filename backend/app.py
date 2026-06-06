@@ -19,7 +19,7 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # ==================== 客户端初始化 ====================
 
@@ -295,6 +295,17 @@ def handle_disconnect():
     print('[WebSocket] 客户端已断开')
 
 
+@socketio.on('captions')
+def handle_captions(data):
+    try:
+        print(f'[WebSocket] 收到字幕消息: {data}')
+        # 转发给所有连接的客户端（包括悬浮窗）
+        emit('captions', data, broadcast=True)
+        print(f'[WebSocket] 已转发字幕消息')
+    except Exception as e:
+        print(f'[WebSocket] 转发字幕消息失败: {e}')
+
+
 # ==================== 历史记录 ====================
 
 translation_history = []
@@ -310,60 +321,67 @@ def clear_history():
     return jsonify({"success": True, "message": f"已清空 {count} 条"})
 
 
+# ==================== 测试接口 ====================
+
+@app.route("/api/test-captions", methods=["POST"])
+def test_captions():
+    data = request.get_json()
+    if data and 'text' in data:
+        text = data['text']
+        print(f'[Test] 手动发送字幕: {text}')
+        # 在 HTTP 请求上下文中发送消息，需要使用 server.emit
+        # 发送完整的消息格式，包含 type 字段
+        socketio.server.emit('captions', {'type': 'translation', 'text': text}, namespace='/')
+        print(f'[Test] 已发送字幕消息')
+        return jsonify({"success": True, "message": f"已发送字幕: {text}"})
+    return jsonify({"success": False, "error": "缺少 text 参数"}), 400
+
+
 # ==================== 悬浮窗控制 ====================
 
 @app.route("/api/overlay/start", methods=["POST"])
 def start_overlay():
     overlay_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'overlay', 'overlay_app.py')
     overlay_pid_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'overlay.pid')
-    
-    # 检查 overlay.lock 文件（由 overlay_app.py 创建）
     overlay_lock_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'overlay', 'overlay.lock')
-    if os.path.exists(overlay_lock_file):
-        try:
-            with open(overlay_lock_file, 'r') as f:
-                lock_pid = int(f.read().strip())
-            # 检查进程是否仍在运行
-            if os.name == 'nt':
-                import ctypes
-                kernel32 = ctypes.windll.kernel32
-                handle = kernel32.OpenProcess(1, False, lock_pid)
-                if handle != 0:
-                    kernel32.CloseHandle(handle)
-                    return jsonify({"success": True, "message": "悬浮窗已存在"})
-            os.remove(overlay_lock_file)
-        except:
-            try:
-                os.remove(overlay_lock_file)
-            except:
-                pass
     
-    if os.path.exists(overlay_pid_file):
-        try:
-            with open(overlay_pid_file, 'r') as f:
-                pid = int(f.read().strip())
-            if os.name == 'nt':
-                import ctypes
-                kernel32 = ctypes.windll.kernel32
-                handle = kernel32.OpenProcess(1, False, pid)
-                if handle != 0:
-                    kernel32.CloseHandle(handle)
-                    return jsonify({"success": True, "message": "悬浮窗已存在"})
-                os.remove(overlay_pid_file)
-            else:
-                if os.path.exists(f'/proc/{pid}'):
-                    return jsonify({"success": True, "message": "悬浮窗已存在"})
-                os.remove(overlay_pid_file)
-        except:
-            if os.path.exists(overlay_pid_file):
-                os.remove(overlay_pid_file)
+    # 强制删除旧的锁文件（避免之前的进程退出后锁文件残留）
+    try:
+        if os.path.exists(overlay_lock_file):
+            os.remove(overlay_lock_file)
+            print("[Backend] 已清理旧的锁文件")
+    except Exception as e:
+        print(f"[Backend] 删除锁文件失败: {e}")
+    
+    # 强制删除旧的PID文件
+    try:
+        if os.path.exists(overlay_pid_file):
+            os.remove(overlay_pid_file)
+            print("[Backend] 已清理旧的PID文件")
+    except Exception as e:
+        print(f"[Backend] 删除PID文件失败: {e}")
     
     if os.path.exists(overlay_path):
         try:
+            # 修改：移除 CREATE_NO_WINDOW，让悬浮窗的输出可见
             proc = subprocess.Popen(['python', overlay_path], 
-                                    creationflags=subprocess.CREATE_NO_WINDOW,
                                     stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE)
+                                    stderr=subprocess.STDOUT,
+                                    text=True)
+            
+            # 读取悬浮窗的输出（非阻塞方式）
+            def read_overlay_output():
+                while True:
+                    line = proc.stdout.readline()
+                    if line:
+                        print(f"[Overlay] {line}", end='')
+                    else:
+                        break
+            
+            # 在后台线程中读取输出
+            import threading
+            threading.Thread(target=read_overlay_output, daemon=True).start()
+            
             with open(overlay_pid_file, 'w') as f:
                 f.write(str(proc.pid))
             print(f"[Backend] 悬浮窗进程已启动，PID: {proc.pid}")
@@ -427,6 +445,7 @@ def stop_overlay():
 if __name__ == "__main__":
     port = int(os.getenv("FLASK_PORT", 5000))
     debug = False
+    use_reloader = False
 
     if os.path.exists(VOSK_MODEL_PATH):
         print("[OK] Vosk 模型已就绪:", VOSK_MODEL_PATH)
@@ -434,4 +453,19 @@ if __name__ == "__main__":
         print("[WARN] Vosk 模型未找到:", VOSK_MODEL_PATH)
 
     print("[RUN] 服务启动: http://localhost:", port)
-    socketio.run(app, host="0.0.0.0", port=port, debug=debug, allow_unsafe_werkzeug=True)
+    print(f"[RUN] Debug模式: {debug}, 热重载: {use_reloader}")
+    
+    # 打印所有已注册的路由
+    print("[RUN] 已注册的路由:")
+    for rule in app.url_map.iter_rules():
+        methods = [m for m in rule.methods if m not in ['OPTIONS', 'HEAD']]
+        print(f"  - {rule.rule} ({', '.join(methods)})")
+    
+    try:
+        socketio.run(app, host="0.0.0.0", port=port, debug=debug, use_reloader=use_reloader)
+    except KeyboardInterrupt:
+        print("[INFO] 服务已停止")
+    except Exception as e:
+        print(f"[ERROR] 服务启动失败: {e}")
+        import traceback
+        traceback.print_exc()
