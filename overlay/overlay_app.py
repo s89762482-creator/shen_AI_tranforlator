@@ -69,6 +69,7 @@ class SocketIOClient(QThread):
     status_changed = Signal(bool)
     connected = Signal()
     disconnected = Signal()
+    close_requested = Signal()
 
     def __init__(self, url="http://localhost:5000"):
         super().__init__()
@@ -109,6 +110,11 @@ class SocketIOClient(QThread):
                 self.translation_token.emit(data['text'])
             elif msg_type == 'translation-done':
                 print(f"[SocketIO] 翻译完成")
+        
+        @self.sio.event
+        def close_overlay():
+            print(f"[SocketIO] 收到关闭悬浮窗命令")
+            self.close_requested.emit()
         
         # 连接到服务器
         try:
@@ -290,6 +296,7 @@ class OverlayWindow(QMainWindow):
         self.sio_client.translation_done.connect(self._on_done)
         self.sio_client.connected.connect(self._on_sio_connected)
         self.sio_client.disconnected.connect(self._on_sio_disconnected)
+        self.sio_client.close_requested.connect(self._on_close_requested)
         self.sio_client.start()
 
     def _on_sio_connected(self):
@@ -312,6 +319,14 @@ class OverlayWindow(QMainWindow):
     def _on_done(self, full_text):
         self._current_translation = full_text
         self.translated_label.setText(full_text)
+
+    def _on_close_requested(self):
+        print("[Overlay] 收到关闭请求，正在关闭悬浮窗...")
+        # 停止 SocketIO 客户端
+        self.sio_client.stop()
+        self.sio_client.wait()
+        # 关闭窗口
+        self.close()
 
     # ---------- 拖拽 ----------
     def mousePressEvent(self, event):
