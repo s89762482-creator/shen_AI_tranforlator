@@ -15,11 +15,31 @@ from flask_socketio import SocketIO, emit
 from openai import OpenAI
 from dotenv import load_dotenv
 
+# 导入修正模块
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from correction import CorrectionManager
+
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+# 修正管理器 - 维护最近15秒的识别文本，用于上下文修正
+correction_manager = CorrectionManager(window_seconds=15)
+
+def on_correction(index, original, corrected):
+    """修正回调 - 推送修正信息到客户端"""
+    print(f"[Correction] 自动修正: '{original}' -> '{corrected}'")
+    socketio.emit('correction', {
+        'index': index,
+        'original': original,
+        'corrected': corrected,
+        'timestamp': datetime.now().isoformat()
+    })
+
+correction_manager.on_correction = on_correction
 
 # ==================== 客户端初始化 ====================
 
@@ -125,6 +145,14 @@ def transcribe_audio():
             if text:
                 os.unlink(audio_path)
                 print(f"[Transcribe] Vosk 识别成功: {text}")
+                
+                # 将识别结果添加到修正管理器
+                correction_manager.add_recognition(text)
+                
+                # 尝试自动修正（异步执行，不阻塞主流程）
+                import asyncio
+                asyncio.ensure_future(correction_manager.correct_last())
+                
                 socketio.emit('recognition', {'text': text, 'engine': 'vosk'})
                 return jsonify({
                     "success": True,
@@ -138,6 +166,14 @@ def transcribe_audio():
             if text:
                 os.unlink(audio_path)
                 print(f"[Transcribe] Whisper 识别成功: {text}")
+                
+                # 将识别结果添加到修正管理器
+                correction_manager.add_recognition(text)
+                
+                # 尝试自动修正（异步执行，不阻塞主流程）
+                import asyncio
+                asyncio.ensure_future(correction_manager.correct_last())
+                
                 socketio.emit('recognition', {'text': text, 'engine': 'whisper-1'})
                 return jsonify({
                     "success": True,
@@ -321,6 +357,70 @@ def clear_history():
     return jsonify({"success": True, "message": f"已清空 {count} 条"})
 
 
+# ==================== 修正功能接口 ====================
+
+@app.route("/api/correct", methods=["POST"])
+def trigger_correction():
+    """手动触发自动修正"""
+    try:
+        import asyncio
+        results = asyncio.run(correction_manager.correct_all())
+        
+        return jsonify({
+            "success": True,
+            "message": f"已修正 {len(results)} 处",
+            "corrected": results
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/correct/segments", methods=["GET"])
+def get_segments():
+    """获取当前所有片段信息"""
+    segments = correction_manager.get_segments()
+    return jsonify({
+        "success": True,
+        "data": segments,
+        "total": len(segments)
+    })
+
+
+@app.route("/api/correct/manual", methods=["POST"])
+def manual_correction():
+    """手动修正特定片段"""
+    data = request.get_json()
+    if not data or "index" not in data or "text" not in data:
+        return jsonify({"success": False, "error": "缺少必要参数 (index, text)"}), 400
+    
+    index = data["index"]
+    text = data["text"].strip()
+    
+    if not text:
+        return jsonify({"success": False, "error": "修正文本不能为空"}), 400
+    
+    # 获取原始文本
+    segments = correction_manager.get_segments()
+    if index < 0 or index >= len(segments):
+        return jsonify({"success": False, "error": "索引超出范围"}), 400
+    
+    original = segments[index].get("original") or segments[index].get("text", "")
+    
+    # 执行修正
+    success = correction_manager.window.correct_segment(index, text, original)
+    
+    if success:
+        return jsonify({
+            "success": True,
+            "message": "修正成功",
+            "index": index,
+            "original": original,
+            "corrected": text
+        })
+    else:
+        return jsonify({"success": False, "error": "修正失败"}), 500
+
+
 # ==================== 测试接口 ====================
 
 @app.route("/api/test-captions", methods=["POST"])
@@ -410,11 +510,12 @@ def stop_overlay():
                 kernel32 = ctypes.windll.kernel32
                 handle = kernel32.OpenProcess(1, False, pid)
                 if handle != 0:
-                    # 发送关闭消息
+                    # 发送关闭消息（在HTTP上下文中需要使用server.emit）
                     try:
-                        socketio.emit('close_overlay', {})
-                    except:
-                        pass
+                        socketio.server.emit('close_overlay', {}, namespace='/')
+                        print("[Backend] 已发送关闭悬浮窗命令")
+                    except Exception as e:
+                        print(f"[Backend] 发送关闭命令失败: {e}")
                     # 强制终止进程
                     kernel32.TerminateProcess(handle, 0)
                     kernel32.CloseHandle(handle)
