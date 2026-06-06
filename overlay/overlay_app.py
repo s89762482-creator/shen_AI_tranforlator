@@ -1,6 +1,6 @@
 """
 AI 同声传译 - 桌面悬浮窗
-PyQt5 无边框毛玻璃窗口 + WebSocket 实时通信
+PyQt5 无边框毛玻璃窗口 + SocketIO 实时通信
 """
 import sys
 import json
@@ -10,11 +10,12 @@ from PySide6.QtWidgets import (
     QLabel, QHBoxLayout, QGraphicsDropShadowEffect
 )
 from PySide6.QtCore import (
-    Qt, QTimer, QPoint, Signal, QThread,
-    QPropertyAnimation, QEasingCurve, QUrl
+    Qt, QTimer, QPoint, Signal, QThread, QObject
 )
 from PySide6.QtGui import QColor
-from PySide6.QtWebSockets import QWebSocket
+
+# 导入 SocketIO 客户端
+import socketio
 
 def _is_process_running(pid):
     try:
@@ -60,8 +61,8 @@ def check_single_instance():
     except:
         return False
 
-# ==================== WebSocket 客户端 ====================
-class WebSocketClient(QThread):
+# ==================== SocketIO 客户端 ====================
+class SocketIOClient(QThread):
     original_received = Signal(str)
     translation_token = Signal(str)
     translation_done = Signal(str)
@@ -69,78 +70,66 @@ class WebSocketClient(QThread):
     connected = Signal()
     disconnected = Signal()
 
-    def __init__(self, url="ws://127.0.0.1:5000"):
+    def __init__(self, url="http://localhost:5000"):
         super().__init__()
         self.url = url
-        self.ws = None
-        self._buffer = ""
-        self._socketio_connected = False
+        print(f"[SocketIO] 连接地址: {self.url}")
+        self.sio = None
 
     def run(self):
-        self.ws = QWebSocket()
-        self.ws.connected.connect(self._on_connected)
-        self.ws.disconnected.connect(self._on_disconnected)
-        self.ws.textMessageReceived.connect(self._on_message)
-        self.ws.open(QUrl(self.url))
-
-    def _on_connected(self):
-        print("[WS] 已连接")
-        self.connected.emit()
+        # 创建 SocketIO 客户端
+        self.sio = socketio.Client()
         
-    def _send_socketio_packet(self, packet_type, data=""):
-        if self.ws and self.ws.state() == QWebSocket.ConnectedState:
-            message = f"{packet_type}{data}"
-            self.ws.sendTextMessage(message)
-
-    def _on_disconnected(self):
-        print("[WS] 已断开, 3秒后重连...")
-        self._socketio_connected = False
-        self.disconnected.emit()
-        QTimer.singleShot(3000, self._reconnect)
+        @self.sio.event
+        def connect():
+            print("[SocketIO] 已连接")
+            self.connected.emit()
+        
+        @self.sio.event
+        def disconnect():
+            print("[SocketIO] 已断开")
+            self.disconnected.emit()
+            # 3秒后重连
+            QTimer.singleShot(3000, self._reconnect)
+        
+        @self.sio.event
+        def connect_error(e):
+            print(f"[SocketIO] 连接错误: {e}")
+            QTimer.singleShot(3000, self._reconnect)
+        
+        @self.sio.event
+        def captions(data):
+            print(f"[SocketIO] 收到 captions 消息: {data}")
+            msg_type = data.get('type', '')
+            if msg_type == 'original' and 'text' in data:
+                print(f"[SocketIO] 提取到原文: {data['text']}")
+                self.original_received.emit(data['text'])
+            elif msg_type == 'translation' and 'text' in data:
+                print(f"[SocketIO] 提取到译文: {data['text']}")
+                self.translation_token.emit(data['text'])
+            elif msg_type == 'translation-done':
+                print(f"[SocketIO] 翻译完成")
+        
+        # 连接到服务器
+        try:
+            self.sio.connect(self.url)
+            # 保持线程运行
+            self.sio.wait()
+        except Exception as e:
+            print(f"[SocketIO] 连接失败: {e}")
+            QTimer.singleShot(3000, self._reconnect)
 
     def _reconnect(self):
-        if self.ws:
-            self.ws.open(QUrl(self.url))
-
-    def _on_message(self, message):
-        try:
-            if not self._socketio_connected:
-                if message == "0":
-                    self._send_socketio_packet(0, "40")
-                    self._socketio_connected = True
-                    print("[WS] Socket.IO 连接完成")
-                return
-                
-            if message.startswith("40"):
-                self._send_socketio_packet(0, "40")
-                self._socketio_connected = True
-                return
-            elif message.startswith("2"):
-                self._send_socketio_packet(3)
-                return
-            elif message.startswith("42"):
-                data_str = message[2:]
-                data = json.loads(data_str)
-                event_name = data[0]
-                event_data = data[1] if len(data) > 1 else {}
-                
-                if event_name == 'recognition':
-                    if 'text' in event_data:
-                        self.original_received.emit(event_data['text'])
-                elif event_name == 'token':
-                    if 'token' in event_data:
-                        self.translation_token.emit(event_data['token'])
-                elif event_name == 'translation':
-                    if 'original' in event_data and 'translated' in event_data:
-                        self.original_received.emit(event_data['original'])
-                        self.translation_done.emit(event_data['translated'])
-                        
-        except Exception as e:
-            print(f"[WS] 消息处理错误: {e}")
+        if self.sio:
+            try:
+                self.sio.connect(self.url)
+            except Exception as e:
+                print(f"[SocketIO] 重连失败: {e}")
+                QTimer.singleShot(3000, self._reconnect)
 
     def stop(self):
-        if self.ws:
-            self.ws.close()
+        if self.sio:
+            self.sio.disconnect()
 
 
 # ==================== 悬浮窗主界面 ====================
@@ -152,7 +141,7 @@ class OverlayWindow(QMainWindow):
         self._current_translation = ""
 
         self._init_ui()
-        self._init_websocket()
+        self._init_socketio()
         print("[Overlay] OverlayWindow 初始化完成")
 
     def _init_ui(self):
@@ -216,7 +205,7 @@ class OverlayWindow(QMainWindow):
         self.pulse_dot.setObjectName("pulseDot")
         self.pulse_dot.setFixedSize(8, 8)
 
-        self.status_label = QLabel("监听中")
+        self.status_label = QLabel("连接中...")
         self.status_label.setObjectName("statusLabel")
 
         status_layout.addStretch()
@@ -282,7 +271,7 @@ class OverlayWindow(QMainWindow):
                 letter-spacing: 1px;
             }
             #pulseDot {
-                background: #34d399;
+                background: #6b7280;
                 border-radius: 4px;
             }
         """)
@@ -294,20 +283,20 @@ class OverlayWindow(QMainWindow):
             screen.height() - self.height() - 80
         )
 
-    def _init_websocket(self):
-        self.ws_client = WebSocketClient()
-        self.ws_client.original_received.connect(self._on_original)
-        self.ws_client.translation_token.connect(self._on_token)
-        self.ws_client.translation_done.connect(self._on_done)
-        self.ws_client.connected.connect(self._on_ws_connected)
-        self.ws_client.disconnected.connect(self._on_ws_disconnected)
-        self.ws_client.start()
+    def _init_socketio(self):
+        self.sio_client = SocketIOClient()
+        self.sio_client.original_received.connect(self._on_original)
+        self.sio_client.translation_token.connect(self._on_token)
+        self.sio_client.translation_done.connect(self._on_done)
+        self.sio_client.connected.connect(self._on_sio_connected)
+        self.sio_client.disconnected.connect(self._on_sio_disconnected)
+        self.sio_client.start()
 
-    def _on_ws_connected(self):
+    def _on_sio_connected(self):
         self.status_label.setText("监听中")
         self.pulse_dot.setStyleSheet("#pulseDot { background: #34d399; border-radius: 4px; }")
 
-    def _on_ws_disconnected(self):
+    def _on_sio_disconnected(self):
         self.status_label.setText("重连中...")
         self.pulse_dot.setStyleSheet("#pulseDot { background: #6b7280; border-radius: 4px; }")
 
@@ -317,7 +306,7 @@ class OverlayWindow(QMainWindow):
         self.divider.show()
 
     def _on_token(self, token):
-        self._current_translation += token
+        self._current_translation = token
         self.translated_label.setText(self._current_translation)
 
     def _on_done(self, full_text):
@@ -337,8 +326,8 @@ class OverlayWindow(QMainWindow):
         self._drag_pos = None
 
     def closeEvent(self, event):
-        if hasattr(self, 'ws_client'):
-            self.ws_client.stop()
+        if hasattr(self, 'sio_client'):
+            self.sio_client.stop()
         super().closeEvent(event)
 
 

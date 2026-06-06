@@ -3,6 +3,7 @@ const Translator = {
     targetLang: CONFIG.DEFAULT_TARGET_LANG,
     _currentTranslation: '',
     _channel: null,
+    _socket: null,
 
     onOriginalText: null,
     onTranslatedToken: null,
@@ -17,10 +18,29 @@ const Translator = {
             if (result.services.deepseek) engineName = 'DeepSeek';
             else if (result.services.openai) engineName = 'OpenAI';
             if (this.onEngineReady) this.onEngineReady(engineName);
+            
+            this._initSocket();
             return true;
         } catch (error) {
             if (this.onEngineReady) this.onEngineReady('连接失败');
             return false;
+        }
+    },
+
+    _initSocket() {
+        try {
+            this._socket = io('http://localhost:5000');
+            this._socket.on('connect', () => {
+                console.log('[Translator] Socket.IO 已连接');
+            });
+            this._socket.on('disconnect', () => {
+                console.log('[Translator] Socket.IO 已断开');
+            });
+            this._socket.on('connect_error', (error) => {
+                console.error('[Translator] Socket.IO 连接失败:', error);
+            });
+        } catch (e) {
+            console.error('[Translator] Socket.IO 初始化失败:', e);
         }
     },
 
@@ -35,8 +55,14 @@ const Translator = {
 
     _broadcast(type, data = {}) {
         if (this._channel) {
-            console.log('[Translator] 发送消息:', { type, ...data });
+            console.log('[Translator] 发送消息 (BroadcastChannel):', { type, ...data });
             this._channel.postMessage({ type, ...data });
+        }
+        // 通过 Socket.IO 发送给后端，后端再转发给悬浮窗
+        // 转发所有类型的消息（original, translation, translation-done）
+        if (this._socket && (type === 'original' || type === 'translation' || type === 'translation-done')) {
+            console.log('[Translator] 发送消息 (Socket.IO):', { type, ...data });
+            this._socket.emit('captions', { type, ...data });
         }
     },
 
@@ -64,24 +90,20 @@ const Translator = {
             const originalText = await this._recognizeWithBackend(audioBlob);
             if (!originalText || !originalText.trim()) return;
 
+            console.log('[Translator] 语音识别结果:', originalText);
+            
             if (this.onOriginalText) this.onOriginalText(originalText);
             this._broadcast('original', { text: originalText });
-            this._currentTranslation = '';
-
-            await API.translateStream(
-                originalText, this.targetLang,
-                (token) => {
-                    this._currentTranslation += token;
-                    if (this.onTranslatedToken) this.onTranslatedToken(this._currentTranslation);
-                    this._broadcast('translation', { text: this._currentTranslation });
-                },
-                () => {
-                    this.addHistory(originalText, this._currentTranslation);
-                    if (this.onTranslatedDone) this.onTranslatedDone(this._currentTranslation);
-                    this._broadcast('translation-done', {});
-                },
-                (error) => { console.error('[Translator] 翻译失败:', error); }
-            );
+            
+            // 不做翻译，直接用原文作为"翻译结果"
+            this._currentTranslation = originalText;
+            if (this.onTranslatedToken) this.onTranslatedToken(this._currentTranslation);
+            this._broadcast('translation', { text: this._currentTranslation });
+            
+            this.addHistory(originalText, this._currentTranslation);
+            if (this.onTranslatedDone) this.onTranslatedDone(this._currentTranslation);
+            this._broadcast('translation-done', {});
+            
             return { original: originalText, translated: this._currentTranslation };
         } catch (error) {
             console.error('[Translator] 处理音频出错:', error);
