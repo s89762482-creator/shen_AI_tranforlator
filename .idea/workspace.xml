@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="a18bb929-8305-4829-bfa9-1a4deb7e9ac8" name="Changes" comment="## 功能描述&#10;实现基于 PySide6 的桌面悬浮窗，用于系统音频模式下的字幕显示。&#10;&#10;## 实现思路&#10;&#10;### 1. 整体架构&#10;采用双窗口架构：主窗口（Web 界面）+ 悬浮窗（PySide6 桌面窗口）&#10;&#10;### 2. 关键技术点&#10;&#10;#### (1) 后端启动悬浮窗进程&#10;- Flask 提供 `/api/overlay/start` 和 `/api/overlay/stop` 接口&#10;- 使用 `subprocess.Popen` 启动独立进程&#10;&#10;#### (2) 悬浮窗无边框设置&#10;- PySide6 `setWindowFlags(Qt.FramelessWindowHint)`&#10;- `setAttribute(Qt.WA_TranslucentBackground)` 透明背景&#10;&#10;#### (3) WebSocket 实时通信&#10;- 悬浮窗连接 WebSocket 接收翻译结果&#10;- 实时更新原文和译文显示&#10;&#10;#### (4) 单例控制&#10;- 进程 PID 记录，防止重复启动&#10;- 启动前检查已有进程&#10;&#10;#### (5) 停止悬浮窗&#10;- 停止监听时自动终止进程&#10;- 清理临时文件&#10;&#10;### 3. 工作流程&#10;用户点击&quot;开始监听&quot;&#10;↓&#10;前端判断选择的是&quot;系统音频&quot;&#10;↓&#10;调用 API.startOverlay()&#10;↓&#10;后端启动 overlay_app.py 进程&#10;↓&#10;悬浮窗显示在屏幕底部中央&#10;↓&#10;悬浮窗连接 WebSocket&#10;↓&#10;用户播放音频 → 后端识别 → 翻译 → WebSocket 推送&#10;↓&#10;悬浮窗实时显示翻译结果&#10;↓&#10;用户点击&quot;停止监听&quot;&#10;↓&#10;调用 API.stopOverlay()&#10;↓&#10;后端终止悬浮窗进程&#10;↓&#10;悬浮窗关闭&#10;### 4. 优势&#10;- ✅ 独立进程：悬浮窗崩溃不会影响主程序&#10;- ✅ 真正无边框：PySide6 原生窗口，不是浏览器弹窗&#10;- ✅ 始终置顶：可以在任何应用上显示&#10;- ✅ 轻量级：只显示字幕，不运行完整浏览器&#10;- ✅ 进程管理：单例控制，防止重复启动&#10;&#10;## 测试方式&#10;1. 启动后端服务&#10;2. 选择「系统音频」模式&#10;3. 点击「开始监听」&#10;4. 悬浮窗自动弹出并显示在屏幕底部&#10;5. 播放英文音频/视频，观察字幕实时显示&#10;6. 点击「停止监听」，悬浮窗自动关闭&#10;&#10;## 文件变更&#10;- `backend/app.py` - 新增悬浮窗启动/停止 API&#10;- `overlay/overlay_app.py` - PySide6 悬浮窗程序&#10;- `frontend/js/api.js` - 新增 startOverlay/stopOverlay 方法&#10;- `frontend/js/app.js` - 集成悬浮窗调用逻辑&#10;- `frontend/js/translator.js` - WebSocket 推送适配&#10;&#10;## 新增依赖&#10;- PySide6&#10;- websocket-client" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="FlaskConsoleOptions" custom-start-script="import sys&#10;sys.path.extend([WORKING_DIR_AND_PYTHON_PATHS])&#10;from flask.cli import ScriptInfo&#10;locals().update(ScriptInfo(create_app=None).load_app().make_shell_context())&#10;print(&quot;Python %s on %s\nApp: %s [%s]\nInstance: %s&quot; % (sys.version, sys.platform, app.import_name, app.env, app.instance_path))">
+    <envs>
+      <env key="FLASK_APP" value="app" />
+    </envs>
+    <option name="myCustomStartScript" value="import sys&#10;sys.path.extend([WORKING_DIR_AND_PYTHON_PATHS])&#10;from flask.cli import ScriptInfo&#10;locals().update(ScriptInfo(create_app=None).load_app().make_shell_context())&#10;print(&quot;Python %s on %s\nApp: %s [%s]\nInstance: %s&quot; % (sys.version, sys.platform, app.import_name, app.env, app.instance_path))" />
+    <option name="myEnvs">
+      <map>
+        <entry key="FLASK_APP" value="app" />
+      </map>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;s89762482-creator&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/s89762482-creator/shen_AI_tranforlator.git&quot;,
+    &quot;accountId&quot;: &quot;c0756705-2f2f-4677-a84e-b2d5417cff28&quot;
+  }
+}</component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/audio_capture.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/backend/requirements.txt" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/config.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/correction.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/tts_engine.py" root0="SKIP_INSPECTION" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 0
+}</component>
+  <component name="ProjectId" id="3EiCYRJ49zFcSsspEJQvvT8HcR8" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.audio_capture.executor&quot;: &quot;Run&quot;,
+    &quot;Python.config.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/AI翻译&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;vcs.Git&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-1d06a55b98c1-0b3e54e931b4-JavaScript-PY-241.19416.19" />
+        <option value="bundled-python-sdk-337b0a7a993a-2767605e8bc2-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-241.19416.19" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="a18bb929-8305-4829-bfa9-1a4deb7e9ac8" name="Changes" comment="" />
+      <created>1780652049743</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1780652049743</updated>
+      <workItem from="1780652050845" duration="227000" />
+      <workItem from="1780652295476" duration="12568000" />
+      <workItem from="1780716391344" duration="6597000" />
+    </task>
+    <task id="LOCAL-00001" summary="创建项目基础文件结构">
+      <option name="closed" value="true" />
+      <created>1780652628420</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1780652628420</updated>
+    </task>
+    <task id="LOCAL-00002" summary="## 功能描述&#10;实现基于 PySide6 的桌面悬浮窗，用于系统音频模式下的字幕显示。&#10;&#10;## 实现思路&#10;&#10;### 1. 整体架构&#10;采用双窗口架构：主窗口（Web 界面）+ 悬浮窗（PySide6 桌面窗口）&#10;&#10;### 2. 关键技术点&#10;&#10;#### (1) 后端启动悬浮窗进程&#10;- Flask 提供 `/api/overlay/start` 和 `/api/overlay/stop` 接口&#10;- 使用 `subprocess.Popen` 启动独立进程&#10;&#10;#### (2) 悬浮窗无边框设置&#10;- PySide6 `setWindowFlags(Qt.FramelessWindowHint)`&#10;- `setAttribute(Qt.WA_TranslucentBackground)` 透明背景&#10;&#10;#### (3) WebSocket 实时通信&#10;- 悬浮窗连接 WebSocket 接收翻译结果&#10;- 实时更新原文和译文显示&#10;&#10;#### (4) 单例控制&#10;- 进程 PID 记录，防止重复启动&#10;- 启动前检查已有进程&#10;&#10;#### (5) 停止悬浮窗&#10;- 停止监听时自动终止进程&#10;- 清理临时文件&#10;&#10;### 3. 工作流程&#10;用户点击&quot;开始监听&quot;&#10;↓&#10;前端判断选择的是&quot;系统音频&quot;&#10;↓&#10;调用 API.startOverlay()&#10;↓&#10;后端启动 overlay_app.py 进程&#10;↓&#10;悬浮窗显示在屏幕底部中央&#10;↓&#10;悬浮窗连接 WebSocket&#10;↓&#10;用户播放音频 → 后端识别 → 翻译 → WebSocket 推送&#10;↓&#10;悬浮窗实时显示翻译结果&#10;↓&#10;用户点击&quot;停止监听&quot;&#10;↓&#10;调用 API.stopOverlay()&#10;↓&#10;后端终止悬浮窗进程&#10;↓&#10;悬浮窗关闭&#10;### 4. 优势&#10;- ✅ 独立进程：悬浮窗崩溃不会影响主程序&#10;- ✅ 真正无边框：PySide6 原生窗口，不是浏览器弹窗&#10;- ✅ 始终置顶：可以在任何应用上显示&#10;- ✅ 轻量级：只显示字幕，不运行完整浏览器&#10;- ✅ 进程管理：单例控制，防止重复启动&#10;&#10;## 测试方式&#10;1. 启动后端服务&#10;2. 选择「系统音频」模式&#10;3. 点击「开始监听」&#10;4. 悬浮窗自动弹出并显示在屏幕底部&#10;5. 播放英文音频/视频，观察字幕实时显示&#10;6. 点击「停止监听」，悬浮窗自动关闭&#10;&#10;## 文件变更&#10;- `backend/app.py` - 新增悬浮窗启动/停止 API&#10;- `overlay/overlay_app.py` - PySide6 悬浮窗程序&#10;- `frontend/js/api.js` - 新增 startOverlay/stopOverlay 方法&#10;- `frontend/js/app.js` - 集成悬浮窗调用逻辑&#10;- `frontend/js/translator.js` - WebSocket 推送适配&#10;&#10;## 新增依赖&#10;- PySide6&#10;- websocket-client">
+      <option name="closed" value="true" />
+      <created>1780725013124</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1780725013124</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="创建项目基础文件结构" />
+    <MESSAGE value="## 功能描述&#10;实现基于 PySide6 的桌面悬浮窗，用于系统音频模式下的字幕显示。&#10;&#10;## 实现思路&#10;&#10;### 1. 整体架构&#10;采用双窗口架构：主窗口（Web 界面）+ 悬浮窗（PySide6 桌面窗口）&#10;&#10;### 2. 关键技术点&#10;&#10;#### (1) 后端启动悬浮窗进程&#10;- Flask 提供 `/api/overlay/start` 和 `/api/overlay/stop` 接口&#10;- 使用 `subprocess.Popen` 启动独立进程&#10;&#10;#### (2) 悬浮窗无边框设置&#10;- PySide6 `setWindowFlags(Qt.FramelessWindowHint)`&#10;- `setAttribute(Qt.WA_TranslucentBackground)` 透明背景&#10;&#10;#### (3) WebSocket 实时通信&#10;- 悬浮窗连接 WebSocket 接收翻译结果&#10;- 实时更新原文和译文显示&#10;&#10;#### (4) 单例控制&#10;- 进程 PID 记录，防止重复启动&#10;- 启动前检查已有进程&#10;&#10;#### (5) 停止悬浮窗&#10;- 停止监听时自动终止进程&#10;- 清理临时文件&#10;&#10;### 3. 工作流程&#10;用户点击&quot;开始监听&quot;&#10;↓&#10;前端判断选择的是&quot;系统音频&quot;&#10;↓&#10;调用 API.startOverlay()&#10;↓&#10;后端启动 overlay_app.py 进程&#10;↓&#10;悬浮窗显示在屏幕底部中央&#10;↓&#10;悬浮窗连接 WebSocket&#10;↓&#10;用户播放音频 → 后端识别 → 翻译 → WebSocket 推送&#10;↓&#10;悬浮窗实时显示翻译结果&#10;↓&#10;用户点击&quot;停止监听&quot;&#10;↓&#10;调用 API.stopOverlay()&#10;↓&#10;后端终止悬浮窗进程&#10;↓&#10;悬浮窗关闭&#10;### 4. 优势&#10;- ✅ 独立进程：悬浮窗崩溃不会影响主程序&#10;- ✅ 真正无边框：PySide6 原生窗口，不是浏览器弹窗&#10;- ✅ 始终置顶：可以在任何应用上显示&#10;- ✅ 轻量级：只显示字幕，不运行完整浏览器&#10;- ✅ 进程管理：单例控制，防止重复启动&#10;&#10;## 测试方式&#10;1. 启动后端服务&#10;2. 选择「系统音频」模式&#10;3. 点击「开始监听」&#10;4. 悬浮窗自动弹出并显示在屏幕底部&#10;5. 播放英文音频/视频，观察字幕实时显示&#10;6. 点击「停止监听」，悬浮窗自动关闭&#10;&#10;## 文件变更&#10;- `backend/app.py` - 新增悬浮窗启动/停止 API&#10;- `overlay/overlay_app.py` - PySide6 悬浮窗程序&#10;- `frontend/js/api.js` - 新增 startOverlay/stopOverlay 方法&#10;- `frontend/js/app.js` - 集成悬浮窗调用逻辑&#10;- `frontend/js/translator.js` - WebSocket 推送适配&#10;&#10;## 新增依赖&#10;- PySide6&#10;- websocket-client" />
+    <option name="LAST_COMMIT_MESSAGE" value="## 功能描述&#10;实现基于 PySide6 的桌面悬浮窗，用于系统音频模式下的字幕显示。&#10;&#10;## 实现思路&#10;&#10;### 1. 整体架构&#10;采用双窗口架构：主窗口（Web 界面）+ 悬浮窗（PySide6 桌面窗口）&#10;&#10;### 2. 关键技术点&#10;&#10;#### (1) 后端启动悬浮窗进程&#10;- Flask 提供 `/api/overlay/start` 和 `/api/overlay/stop` 接口&#10;- 使用 `subprocess.Popen` 启动独立进程&#10;&#10;#### (2) 悬浮窗无边框设置&#10;- PySide6 `setWindowFlags(Qt.FramelessWindowHint)`&#10;- `setAttribute(Qt.WA_TranslucentBackground)` 透明背景&#10;&#10;#### (3) WebSocket 实时通信&#10;- 悬浮窗连接 WebSocket 接收翻译结果&#10;- 实时更新原文和译文显示&#10;&#10;#### (4) 单例控制&#10;- 进程 PID 记录，防止重复启动&#10;- 启动前检查已有进程&#10;&#10;#### (5) 停止悬浮窗&#10;- 停止监听时自动终止进程&#10;- 清理临时文件&#10;&#10;### 3. 工作流程&#10;用户点击&quot;开始监听&quot;&#10;↓&#10;前端判断选择的是&quot;系统音频&quot;&#10;↓&#10;调用 API.startOverlay()&#10;↓&#10;后端启动 overlay_app.py 进程&#10;↓&#10;悬浮窗显示在屏幕底部中央&#10;↓&#10;悬浮窗连接 WebSocket&#10;↓&#10;用户播放音频 → 后端识别 → 翻译 → WebSocket 推送&#10;↓&#10;悬浮窗实时显示翻译结果&#10;↓&#10;用户点击&quot;停止监听&quot;&#10;↓&#10;调用 API.stopOverlay()&#10;↓&#10;后端终止悬浮窗进程&#10;↓&#10;悬浮窗关闭&#10;### 4. 优势&#10;- ✅ 独立进程：悬浮窗崩溃不会影响主程序&#10;- ✅ 真正无边框：PySide6 原生窗口，不是浏览器弹窗&#10;- ✅ 始终置顶：可以在任何应用上显示&#10;- ✅ 轻量级：只显示字幕，不运行完整浏览器&#10;- ✅ 进程管理：单例控制，防止重复启动&#10;&#10;## 测试方式&#10;1. 启动后端服务&#10;2. 选择「系统音频」模式&#10;3. 点击「开始监听」&#10;4. 悬浮窗自动弹出并显示在屏幕底部&#10;5. 播放英文音频/视频，观察字幕实时显示&#10;6. 点击「停止监听」，悬浮窗自动关闭&#10;&#10;## 文件变更&#10;- `backend/app.py` - 新增悬浮窗启动/停止 API&#10;- `overlay/overlay_app.py` - PySide6 悬浮窗程序&#10;- `frontend/js/api.js` - 新增 startOverlay/stopOverlay 方法&#10;- `frontend/js/app.js` - 集成悬浮窗调用逻辑&#10;- `frontend/js/translator.js` - WebSocket 推送适配&#10;&#10;## 新增依赖&#10;- PySide6&#10;- websocket-client" />
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/shen_AI_tranforlator$config.coverage" NAME="config Coverage Results" MODIFIED="1780653917934" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/shen_AI_tranforlator$audio_capture.coverage" NAME="audio_capture Coverage Results" MODIFIED="1780654420378" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+  </component>
+</project>
