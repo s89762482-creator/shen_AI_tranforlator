@@ -95,14 +95,37 @@ const Translator = {
             if (this.onOriginalText) this.onOriginalText(originalText);
             this._broadcast('original', { text: originalText });
             
-            // 不做翻译，直接用原文作为"翻译结果"
-            this._currentTranslation = originalText;
-            if (this.onTranslatedToken) this.onTranslatedToken(this._currentTranslation);
-            this._broadcast('translation', { text: this._currentTranslation });
+            // 调用翻译API进行翻译
+            this._currentTranslation = '';
             
-            this.addHistory(originalText, this._currentTranslation);
-            if (this.onTranslatedDone) this.onTranslatedDone(this._currentTranslation);
-            this._broadcast('translation-done', {});
+            await API.translateStream(
+                originalText,
+                this.targetLang,
+                // onToken - 流式翻译token
+                (token) => {
+                    this._currentTranslation += token;
+                    if (this.onTranslatedToken) this.onTranslatedToken(this._currentTranslation);
+                    this._broadcast('translation', { text: this._currentTranslation });
+                },
+                // onDone - 翻译完成
+                () => {
+                    console.log('[Translator] 翻译完成:', this._currentTranslation);
+                    this.addHistory(originalText, this._currentTranslation);
+                    if (this.onTranslatedDone) this.onTranslatedDone(this._currentTranslation);
+                    this._broadcast('translation-done', {});
+                },
+                // onError - 翻译错误
+                (error) => {
+                    console.error('[Translator] 翻译失败:', error);
+                    // 翻译失败时，使用原文
+                    this._currentTranslation = originalText;
+                    if (this.onTranslatedToken) this.onTranslatedToken(this._currentTranslation);
+                    this._broadcast('translation', { text: this._currentTranslation });
+                    this.addHistory(originalText, this._currentTranslation);
+                    if (this.onTranslatedDone) this.onTranslatedDone(this._currentTranslation);
+                    this._broadcast('translation-done', {});
+                }
+            );
             
             return { original: originalText, translated: this._currentTranslation };
         } catch (error) {
