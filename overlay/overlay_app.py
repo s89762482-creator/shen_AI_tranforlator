@@ -5,9 +5,10 @@ PyQt5 无边框毛玻璃窗口 + SocketIO 实时通信
 import sys
 import json
 import os
+import time
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QLabel, QHBoxLayout, QGraphicsDropShadowEffect
+    QLabel, QHBoxLayout, QGraphicsDropShadowEffect, QPushButton
 )
 from PySide6.QtCore import (
     Qt, QTimer, QPoint, Signal, QThread, QObject
@@ -70,12 +71,21 @@ class SocketIOClient(QThread):
     connected = Signal()
     disconnected = Signal()
     close_requested = Signal()
-
+    
     def __init__(self, url="http://localhost:5000"):
         super().__init__()
         self.url = url
         print(f"[SocketIO] 连接地址: {self.url}")
         self.sio = None
+        self.reconnect_count = 0  # 重连次数
+        self.max_reconnect_attempts = 2  # 最大重连次数（每次间隔3秒，共约6秒）
+        self.disconnect_time = None  # 断开连接的时间
+        
+        # 心跳计时器 - 检测连接是否正常
+        self.heartbeat_timer = QTimer()
+        self.heartbeat_timer.timeout.connect(self._check_connection)
+        self.heartbeat_interval = 3000  # 心跳间隔 3 秒
+        self.max_disconnect_duration = 8000  # 最大断开时长 8 秒
 
     def run(self):
         # 创建 SocketIO 客户端
@@ -84,19 +94,43 @@ class SocketIOClient(QThread):
         @self.sio.event
         def connect():
             print("[SocketIO] 已连接")
+            self.reconnect_count = 0
+            self.disconnect_time = None
             self.connected.emit()
+            # 启动心跳检测
+            self.heartbeat_timer.start(self.heartbeat_interval)
         
         @self.sio.event
         def disconnect():
             print("[SocketIO] 已断开")
+            self.disconnect_time = time.time()
             self.disconnected.emit()
-            # 3秒后重连
-            QTimer.singleShot(3000, self._reconnect)
+            # 停止心跳检测
+            self.heartbeat_timer.stop()
+            
+            # 如果重连次数未超过限制，尝试重连
+            if self.reconnect_count < self.max_reconnect_attempts:
+                self.reconnect_count += 1
+                print(f"[SocketIO] 第 {self.reconnect_count}/{self.max_reconnect_attempts} 次尝试重连...")
+                QTimer.singleShot(3000, self._reconnect)
+            else:
+                print(f"[SocketIO] 重连次数已达上限，请求关闭悬浮窗")
+                self.close_requested.emit()
         
         @self.sio.event
         def connect_error(e):
             print(f"[SocketIO] 连接错误: {e}")
-            QTimer.singleShot(3000, self._reconnect)
+            if self.disconnect_time is None:
+                self.disconnect_time = time.time()
+            
+            # 如果重连次数未超过限制，尝试重连
+            if self.reconnect_count < self.max_reconnect_attempts:
+                self.reconnect_count += 1
+                print(f"[SocketIO] 第 {self.reconnect_count}/{self.max_reconnect_attempts} 次尝试重连...")
+                QTimer.singleShot(3000, self._reconnect)
+            else:
+                print(f"[SocketIO] 重连次数已达上限，请求关闭悬浮窗")
+                self.close_requested.emit()
         
         @self.sio.event
         def captions(data):
@@ -124,6 +158,15 @@ class SocketIOClient(QThread):
         except Exception as e:
             print(f"[SocketIO] 连接失败: {e}")
             QTimer.singleShot(3000, self._reconnect)
+    
+    def _check_connection(self):
+        """心跳检测：检查连接状态"""
+        if self.disconnect_time is not None:
+            elapsed = time.time() - self.disconnect_time
+            if elapsed >= self.max_disconnect_duration / 1000:
+                print(f"[SocketIO] 连接断开超过 {self.max_disconnect_duration/1000} 秒，请求关闭悬浮窗")
+                self.heartbeat_timer.stop()
+                self.close_requested.emit()
 
     def _reconnect(self):
         if self.sio:
@@ -177,6 +220,14 @@ class OverlayWindow(QMainWindow):
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(24, 20, 24, 18)
         self.content_layout.setSpacing(10)
+
+        # 关闭按钮
+        self.close_button = QPushButton("×")
+        self.close_button.setObjectName("closeButton")
+        self.close_button.setFixedSize(28, 28)
+        self.close_button.clicked.connect(self._on_close_requested)
+        # 将关闭按钮放在内容容器的右上角
+        self.content_layout.addWidget(self.close_button, 0, Qt.AlignTop | Qt.AlignRight)
 
         # 原文
         self.original_label = QLabel()
@@ -279,6 +330,23 @@ class OverlayWindow(QMainWindow):
             #pulseDot {
                 background: #6b7280;
                 border-radius: 4px;
+            }
+            #closeButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 8px;
+                color: rgba(255, 255, 255, 0.6);
+                font-size: 20px;
+                font-weight: 300;
+                padding: 0;
+                margin: 0;
+            }
+            #closeButton:hover {
+                background: rgba(239, 68, 68, 0.6);
+                color: #ffffff;
+            }
+            #closeButton:pressed {
+                background: rgba(239, 68, 68, 0.8);
             }
         """)
 
