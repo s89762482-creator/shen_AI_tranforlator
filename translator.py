@@ -93,6 +93,33 @@ class DeepSeekTranslator:
         if self._session and not self._session.closed:
             await self._session.close()
 
+    def _get_system_prompt(self, target_lang: str) -> str:
+        """获取系统提示词"""
+        prompts = {
+            "zh": """你是一个专业的同声传译助手，擅长将英文翻译成地道、自然的中文口语。
+
+翻译要求：
+1. 使用日常口语表达，就像朋友之间聊天一样自然
+2. 避免直译和书面语，要符合中文表达习惯
+3. 可以适当使用语气词（啊、哦、啦、呢、吧、呗）
+4. 短句优先，每句话不要太长
+5. 保留原意，但不必逐字翻译，意译为主
+6. 遇到俚语或习语，翻译成对应的中文俗语
+
+示例对照：
+- "I'm going to grab a bite to eat" → "我去吃点东西"
+- "That's a great idea" → "这主意真不错"
+- "Let's call it a day" → "今天就到这里吧"
+- "I'm kidding" → "开玩笑啦"
+- "No worries" → "没事儿"
+- "Long time no see" → "好久不见啊"
+
+只输出翻译结果，不要添加任何解释。""",
+            "en": "You are a professional simultaneous interpreter. Polish and refine the following English text to be more natural and conversational. Output only the refined text, no explanations.",
+            "ja": "あなたはプロの同時通訳アシスタントです。以下の英語を自然で会話的な日本語に翻訳してください。説明は不要で、翻訳結果のみを出力してください。"
+        }
+        return prompts.get(target_lang, prompts["zh"])
+
     def _build_prompt(self, text: str, target_lang: str, context: str = "") -> str:
         """
         构建翻译提示词
@@ -102,18 +129,7 @@ class DeepSeekTranslator:
             target_lang: 目标语言代码 (zh, en, ja, de)
             context: 上下文文本
         """
-        target_name = SUPPORTED_LANGUAGES.get(target_lang, {}).get("name", target_lang)
-        source_name = SUPPORTED_LANGUAGES.get(self.source_lang, {}).get("name", self.source_lang)
-
-        prompt = f"""请将以下{source_name}文本翻译成{target_name}。
-
-原文：{text}
-目标语言：{target_name}
-
-要求：
-1. 只输出翻译结果，不要添加任何解释
-2. 保持原文的语气和风格
-3. 如果是短句，翻译要自然流畅"""
+        prompt = f"原文：{text}\n\n请直接翻译上述内容，只输出翻译结果。"
 
         if context:
             prompt += f"\n\n上下文参考（仅用于理解语义）：{context}"
@@ -161,7 +177,7 @@ class DeepSeekTranslator:
                 "messages": [
                     {
                         "role": "system",
-                        "content": "你是一个专业的翻译助手，只输出翻译结果，不要添加任何额外内容。"
+                        "content": self._get_system_prompt(target_lang)
                     },
                     {
                         "role": "user",
