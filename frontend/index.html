@@ -5,25 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI 同声传译助手</title>
     <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
 </head>
 <body>
     <div class="container">
         <header class="header">
             <h1>🎙️ AI 同声传译助手</h1>
-            <p>实时英文识别 · 流式多语言翻译 · 悬浮字幕</p>
+            <p>实时多语言识别 · 流式翻译 · 悬浮字幕</p>
         </header>
 
-        <div class="source-selector">
-            <span class="source-label">🔉 音频来源：</span>
-            <button class="source-btn active" data-source="mic">🎤 麦克风</button>
-            <button class="source-btn" data-source="system">💻 系统音频</button>
+        <div class="language-panel">
+            <div class="lang-group">
+                <span class="lang-label">🗣️ 源语言：</span>
+                <select class="lang-select" id="sourceLangSelect"></select>
+            </div>
+            <div class="lang-arrow">→</div>
+            <div class="lang-group">
+                <span class="lang-label">🎯 目标语言：</span>
+                <select class="lang-select" id="targetLangSelect"></select>
+            </div>
         </div>
 
-        <div class="video-hint" id="videoHint">
+        <div class="video-hint visible" id="videoHint">
             <div class="hint-icon">📺</div>
             <div class="hint-steps">
                 <strong>系统音频模式：</strong><br>
-                1. 打开任意英文视频并播放<br>
+                1. 打开任意视频并播放<br>
                 2. 点击 <strong>"开始监听"</strong><br>
                 3. 选择 <strong>"浏览器标签页"</strong><br>
                 4. ⚠️ 务必勾选 <strong>"分享系统音频"</strong><br>
@@ -37,12 +44,11 @@
                 <span id="btnText">开始监听</span>
             </button>
 
-            <div class="language-selector" id="languageSelector"></div>
-
-            <div class="mode-selector">
-                <button class="mode-btn active" data-mode="subtitle">📝 字幕</button>
-                <button class="mode-btn" data-mode="voice">🔊 语音</button>
-                <button class="mode-btn" data-mode="both">📝🔊 混合</button>
+            <div class="output-mode-selector">
+                <span class="output-mode-label">📤 输出模式：</span>
+                <button class="output-mode-btn active" data-mode="subtitle">📝 字幕</button>
+                <button class="output-mode-btn" data-mode="voice">🔊 语音</button>
+                <button class="output-mode-btn" data-mode="both">📝🔊 混合</button>
             </div>
 
             <div class="status-indicator">

@@ -1,12 +1,14 @@
 const App = {
     isRunning: false,
-    outputMode: 'subtitle',
+    outputMode: 'subtitle',  // 输出模式: subtitle(字幕), voice(语音), both(混合)
+    sourceLang: CONFIG.DEFAULT_SOURCE_LANG,  // 当前源语言
+    targetLang: CONFIG.DEFAULT_TARGET_LANG,  // 当前目标语言
     elements: {},
     overlayWindow: null,
 
     async init() {
         this._cacheElements();
-        this._renderLanguageSelector();
+        this._renderLanguageSelectors();
         this._bindEvents();
         this._registerCallbacks();
         Translator.initChannel();
@@ -26,29 +28,69 @@ const App = {
             videoHint: document.getElementById('videoHint'),
             clearHistoryBtn: document.getElementById('clearHistoryBtn'),
             engineName: document.getElementById('engineName'),
-            sourceBtns: document.querySelectorAll('.source-btn'),
-            modeBtns: document.querySelectorAll('.mode-btn'),
+            outputModeBtns: document.querySelectorAll('.output-mode-btn'),
+            sourceLangSelect: document.getElementById('sourceLangSelect'),
+            targetLangSelect: document.getElementById('targetLangSelect'),
         };
     },
 
-    _renderLanguageSelector() {
-        const container = document.getElementById('languageSelector');
-        if (!container) return;
-        container.innerHTML = CONFIG.SUPPORTED_LANGUAGES.map(lang => `
-            <button class="lang-btn ${lang.code === CONFIG.DEFAULT_TARGET_LANG ? 'active' : ''}"
-                    data-lang="${lang.code}">${lang.flag} ${lang.name}</button>
-        `).join('');
+    _renderLanguageSelectors() {
+        // 渲染源语言选择器
+        if (this.elements.sourceLangSelect) {
+            this.elements.sourceLangSelect.innerHTML = CONFIG.SUPPORTED_SOURCE_LANGUAGES.map(lang => `
+                <option value="${lang.code}" ${lang.code === this.sourceLang ? 'selected' : ''}>
+                    ${lang.flag} ${lang.name}
+                </option>
+            `).join('');
+        }
+        
+        // 渲染目标语言选择器（根据源语言动态更新）
+        this._updateTargetLanguages();
+    },
+
+    _updateTargetLanguages() {
+        if (this.elements.targetLangSelect) {
+            const targetLanguages = CONFIG.SUPPORTED_TARGET_LANGUAGES[this.sourceLang] || [];
+            
+            // 检查当前目标语言是否在可用列表中，如果不在，自动选择第一个
+            const isCurrentLangAvailable = targetLanguages.some(lang => lang.code === this.targetLang);
+            if (!isCurrentLangAvailable && targetLanguages.length > 0) {
+                this.targetLang = targetLanguages[0].code;
+                Translator.setTargetLang(this.targetLang);
+                console.log('[App] 目标语言自动切换为:', this.targetLang);
+            }
+            
+            this.elements.targetLangSelect.innerHTML = targetLanguages.map(lang => `
+                <option value="${lang.code}" ${lang.code === this.targetLang ? 'selected' : ''}>
+                    ${lang.flag} ${lang.name}
+                </option>
+            `).join('');
+        }
     },
 
     _bindEvents() {
         this.elements.startBtn.addEventListener('click', () => this._toggleTranslation());
-        this.elements.sourceBtns.forEach(btn => btn.addEventListener('click', () => this._switchSource(btn.dataset.source)));
-        this.elements.modeBtns.forEach(btn => btn.addEventListener('click', () => this._switchMode(btn.dataset.mode)));
-        const langContainer = document.getElementById('languageSelector');
-        if (langContainer) langContainer.addEventListener('click', (e) => {
-            const btn = e.target.closest('.lang-btn');
-            if (btn) this._switchLanguage(btn.dataset.lang);
-        });
+        this.elements.outputModeBtns.forEach(btn => btn.addEventListener('click', () => this._switchMode(btn.dataset.mode)));
+        
+        // 源语言选择事件
+        if (this.elements.sourceLangSelect) {
+            this.elements.sourceLangSelect.addEventListener('change', (e) => {
+                this.sourceLang = e.target.value;
+                this._updateTargetLanguages();
+                Translator.setSourceLang(this.sourceLang);
+                console.log('[App] 源语言切换为:', this.sourceLang);
+            });
+        }
+        
+        // 目标语言选择事件
+        if (this.elements.targetLangSelect) {
+            this.elements.targetLangSelect.addEventListener('change', (e) => {
+                this.targetLang = e.target.value;
+                Translator.setTargetLang(this.targetLang);
+                console.log('[App] 目标语言切换为:', this.targetLang);
+            });
+        }
+        
         if (this.elements.clearHistoryBtn) this.elements.clearHistoryBtn.addEventListener('click', () => Translator.clearHistory());
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); this._toggleTranslation(); }
@@ -57,8 +99,11 @@ const App = {
 
     _registerCallbacks() {
         AudioCapture.onAudioChunk = async (audioBlob) => {
-            const result = await Translator.processAudio(audioBlob);
-            if (result && (this.outputMode === 'voice' || this.outputMode === 'both')) Translator.speak(result.translated);
+            const result = await Translator.processAudio(audioBlob, this.sourceLang);
+            // 根据输出模式决定是否语音播报
+            if (result && (this.outputMode === 'voice' || this.outputMode === 'both')) {
+                Translator.speak(result.translated);
+            }
         };
         AudioCapture.onStatusChange = (running) => {
             this.isRunning = running;
@@ -76,46 +121,31 @@ const App = {
         if (this.isRunning) { 
             AudioCapture.stop(); 
             // 停止监听时关闭悬浮窗
-            const source = (document.querySelector('.source-btn.active') || {}).dataset?.source || 'mic';
-            if (source === 'system') {
-                try {
-                    const result = await API.stopOverlay();
-                    console.log('[App] 悬浮窗关闭结果:', result);
-                } catch (e) {
-                    console.error('[App] 关闭悬浮窗失败:', e);
-                }
+            try {
+                const result = await API.stopOverlay();
+                console.log('[App] 悬浮窗关闭结果:', result);
+            } catch (e) {
+                console.error('[App] 关闭悬浮窗失败:', e);
             }
             return; 
         }
-        const source = (document.querySelector('.source-btn.active') || {}).dataset?.source || 'mic';
         try { 
-            await AudioCapture.start(source);
-            if (source === 'system') {
-                try {
-                    const result = await API.startOverlay();
-                    console.log('[App] 悬浮窗启动结果:', result);
-                } catch (e) {
-                    console.error('[App] 启动悬浮窗失败:', e);
-                }
+            await AudioCapture.start('system');
+            // 启动系统音频监听
+            try {
+                const result = await API.startOverlay();
+                console.log('[App] 悬浮窗启动结果:', result);
+            } catch (e) {
+                console.error('[App] 启动悬浮窗失败:', e);
             }
         }
         catch (error) { alert('启动失败，请检查权限设置。'); }
     },
 
-    _switchSource(source) {
-        if (this.isRunning) { alert('请先停止当前监听。'); return; }
-        this.elements.sourceBtns.forEach(b => b.classList.toggle('active', b.dataset.source === source));
-        this.elements.videoHint.classList.toggle('visible', source === 'system');
-    },
-
     _switchMode(mode) {
         this.outputMode = mode;
-        this.elements.modeBtns.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-    },
-
-    _switchLanguage(code) {
-        document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === code));
-        Translator.setTargetLang(code);
+        this.elements.outputModeBtns.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+        console.log('[App] 输出模式切换为:', mode);
     },
 
     _updateUIState() {
@@ -124,8 +154,7 @@ const App = {
             this.elements.btnIcon.textContent = '⏸️';
             this.elements.btnText.textContent = '停止监听';
             this.elements.statusDot.classList.add('active');
-            const src = document.querySelector('.source-btn.active');
-            this.elements.statusText.textContent = src && src.dataset.source === 'system' ? '监听系统音频中...' : '监听麦克风中...';
+            this.elements.statusText.textContent = '监听系统音频中...';
             this.elements.originalText.textContent = '正在监听语音...';
             this.elements.translatedText.textContent = '';
         } else {

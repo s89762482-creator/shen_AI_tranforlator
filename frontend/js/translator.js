@@ -1,15 +1,24 @@
 const Translator = {
     history: [],
-    targetLang: CONFIG.DEFAULT_TARGET_LANG,
+    sourceLang: CONFIG.DEFAULT_SOURCE_LANG,  // 源语言
+    targetLang: CONFIG.DEFAULT_TARGET_LANG,  // 目标语言
     _currentTranslation: '',
     _channel: null,
     _socket: null,
+    _pendingText: '',  // 缓存未完成的句子片段
+    _pendingTimeout: null,  // 超时定时器
 
     onOriginalText: null,
     onTranslatedToken: null,
     onTranslatedDone: null,
     onHistoryUpdate: null,
     onEngineReady: null,
+
+    // 设置源语言
+    setSourceLang(lang) {
+        this.sourceLang = lang;
+        console.log('[Translator] 源语言设置为:', lang);
+    },
 
     async init() {
         try {
@@ -85,22 +94,52 @@ const Translator = {
         console.log('[Translator] 目标语言已切换为:', langCode);
     },
 
-    async processAudio(audioBlob) {
+    async processAudio(audioBlob, sourceLang = null) {
+        // 使用传入的源语言或默认源语言
+        const lang = sourceLang || this.sourceLang;
+        
         try {
-            const originalText = await this._recognizeWithBackend(audioBlob);
-            if (!originalText || !originalText.trim()) return;
+            const result = await this._recognizeWithBackend(audioBlob, lang);
+            if (!result || !result.text || !result.text.trim()) return;
 
-            console.log('[Translator] 语音识别结果:', originalText);
+            const { text, is_complete } = result;
+            console.log('[Translator] 语音识别结果:', text, '是否完整:', is_complete, '源语言:', lang);
             
-            if (this.onOriginalText) this.onOriginalText(originalText);
-            this._broadcast('original', { text: originalText });
+            // 智能断句处理
+            if (!is_complete) {
+                // 句子不完整，缓存文本并等待下一次音频
+                this._pendingText += (this._pendingText ? ' ' : '') + text;
+                console.log('[Translator] 句子不完整，缓存:', this._pendingText);
+                
+                // 设置超时：如果5秒内没有新音频，强制翻译缓存的内容
+                this._setPendingTimeout();
+                
+                // 显示缓存的原文（让用户看到正在识别的内容）
+                if (this.onOriginalText) this.onOriginalText(this._pendingText + '...');
+                this._broadcast('original', { text: this._pendingText + '...' });
+                
+                return { original: this._pendingText, translated: '', pending: true };
+            }
             
-            // 调用翻译API进行翻译
+            // 句子完整，清除超时并翻译
+            this._clearPendingTimeout();
+            
+            // 合并缓存的文本和当前文本
+            const fullText = this._pendingText + (this._pendingText ? ' ' : '') + text;
+            this._pendingText = '';  // 清空缓存
+            
+            console.log('[Translator] 句子完整，翻译:', fullText);
+            
+            if (this.onOriginalText) this.onOriginalText(fullText);
+            this._broadcast('original', { text: fullText });
+            
+            // 调用翻译API进行翻译（包含源语言参数）
             this._currentTranslation = '';
             
             await API.translateStream(
-                originalText,
-                this.targetLang,
+                fullText,
+                lang,  // 源语言
+                this.targetLang,  // 目标语言
                 // onToken - 流式翻译token
                 (token) => {
                     this._currentTranslation += token;
@@ -110,7 +149,7 @@ const Translator = {
                 // onDone - 翻译完成
                 () => {
                     console.log('[Translator] 翻译完成:', this._currentTranslation);
-                    this.addHistory(originalText, this._currentTranslation);
+                    this.addHistory(fullText, this._currentTranslation);
                     if (this.onTranslatedDone) this.onTranslatedDone(this._currentTranslation);
                     this._broadcast('translation-done', {});
                 },
@@ -118,27 +157,95 @@ const Translator = {
                 (error) => {
                     console.error('[Translator] 翻译失败:', error);
                     // 翻译失败时，使用原文
-                    this._currentTranslation = originalText;
+                    this._currentTranslation = fullText;
                     if (this.onTranslatedToken) this.onTranslatedToken(this._currentTranslation);
                     this._broadcast('translation', { text: this._currentTranslation });
-                    this.addHistory(originalText, this._currentTranslation);
+                    this.addHistory(fullText, this._currentTranslation);
                     if (this.onTranslatedDone) this.onTranslatedDone(this._currentTranslation);
                     this._broadcast('translation-done', {});
                 }
             );
             
-            return { original: originalText, translated: this._currentTranslation };
+            return { original: fullText, translated: this._currentTranslation };
         } catch (error) {
             console.error('[Translator] 处理音频出错:', error);
         }
     },
 
-    async _recognizeWithBackend(audioBlob) {
+    async _recognizeWithBackend(audioBlob, sourceLang = 'en') {
         try {
-            const result = await API.transcribe(audioBlob);
-            if (result.success && result.data.text) return result.data.text;
+            const result = await API.transcribe(audioBlob, sourceLang);
+            if (result.success && result.data.text) {
+                return {
+                    text: result.data.text,
+                    is_complete: result.data.is_complete !== undefined ? result.data.is_complete : true
+                };
+            }
         } catch (error) {}
-        return '';
+        return null;
+    },
+
+    _setPendingTimeout() {
+        // 清除之前的超时
+        this._clearPendingTimeout();
+        
+        // 设置5秒超时，强制翻译缓存的内容
+        this._pendingTimeout = setTimeout(() => {
+            if (this._pendingText) {
+                console.log('[Translator] 超时，强制翻译缓存:', this._pendingText);
+                this._forceTranslatePending();
+            }
+        }, 5000);
+    },
+
+    _clearPendingTimeout() {
+        if (this._pendingTimeout) {
+            clearTimeout(this._pendingTimeout);
+            this._pendingTimeout = null;
+        }
+    },
+
+    async _forceTranslatePending() {
+        if (!this._pendingText) return;
+        
+        const fullText = this._pendingText;
+        this._pendingText = '';
+        this._clearPendingTimeout();
+        
+        if (this.onOriginalText) this.onOriginalText(fullText);
+        this._broadcast('original', { text: fullText });
+        
+        this._currentTranslation = '';
+        
+        try {
+            await API.translateStream(
+                fullText,
+                this.sourceLang,
+                this.targetLang,
+                (token) => {
+                    this._currentTranslation += token;
+                    if (this.onTranslatedToken) this.onTranslatedToken(this._currentTranslation);
+                    this._broadcast('translation', { text: this._currentTranslation });
+                },
+                () => {
+                    console.log('[Translator] 强制翻译完成:', this._currentTranslation);
+                    this.addHistory(fullText, this._currentTranslation);
+                    if (this.onTranslatedDone) this.onTranslatedDone(this._currentTranslation);
+                    this._broadcast('translation-done', {});
+                },
+                (error) => {
+                    console.error('[Translator] 强制翻译失败:', error);
+                    this._currentTranslation = fullText;
+                    if (this.onTranslatedToken) this.onTranslatedToken(this._currentTranslation);
+                    this._broadcast('translation', { text: this._currentTranslation });
+                    this.addHistory(fullText, this._currentTranslation);
+                    if (this.onTranslatedDone) this.onTranslatedDone(this._currentTranslation);
+                    this._broadcast('translation-done', {});
+                }
+            );
+        } catch (error) {
+            console.error('[Translator] 强制翻译出错:', error);
+        }
     },
 
     addHistory(original, translated) {

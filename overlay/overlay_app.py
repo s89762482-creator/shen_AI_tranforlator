@@ -1,11 +1,12 @@
 """
 AI 同声传译 - 桌面悬浮窗
-PyQt5 无边框毛玻璃窗口 + SocketIO 实时通信
+PyQt5 无边框毛玻璃窗口 + HTTP 轮询获取翻译结果
 """
 import sys
 import json
 import os
 import time
+import requests
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QLabel, QHBoxLayout, QGraphicsDropShadowEffect, QPushButton
@@ -15,8 +16,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor
 
-# 导入 SocketIO 客户端
-import socketio
 
 def _is_process_running(pid):
     try:
@@ -33,10 +32,10 @@ def _is_process_running(pid):
     except:
         return False
 
+
 def check_single_instance():
     lock_file = os.path.join(os.path.dirname(__file__), 'overlay.lock')
     
-    # 如果锁文件已存在
     if os.path.exists(lock_file):
         try:
             with open(lock_file, 'r') as f:
@@ -45,16 +44,13 @@ def check_single_instance():
                     pid = int(pid_str)
                     if _is_process_running(pid):
                         return False
-            # 进程不存在，删除锁文件
             os.remove(lock_file)
         except:
-            # 读取失败，删除锁文件
             try:
                 os.remove(lock_file)
             except:
                 pass
     
-    # 创建新的锁文件
     try:
         with open(lock_file, 'w') as f:
             f.write(str(os.getpid()))
@@ -62,123 +58,69 @@ def check_single_instance():
     except:
         return False
 
-# ==================== SocketIO 客户端 ====================
-class SocketIOClient(QThread):
+
+# ==================== HTTP 轮询客户端 ====================
+class PollingClient(QThread):
     original_received = Signal(str)
     translation_token = Signal(str)
     translation_done = Signal(str)
-    status_changed = Signal(bool)
     connected = Signal()
     disconnected = Signal()
     close_requested = Signal()
     
-    def __init__(self, url="http://localhost:5000"):
+    def __init__(self, api_base="http://localhost:5000"):
         super().__init__()
-        self.url = url
-        print(f"[SocketIO] 连接地址: {self.url}")
-        self.sio = None
-        self.reconnect_count = 0  # 重连次数
-        self.max_reconnect_attempts = 2  # 最大重连次数（每次间隔3秒，共约6秒）
-        self.disconnect_time = None  # 断开连接的时间
+        self.api_base = api_base
+        print(f"[Polling] API 地址: {self.api_base}")
+        self.running = False
+        self.last_update = time.time()
+        self.last_translation = ""
         
-        # 心跳计时器 - 检测连接是否正常
-        self.heartbeat_timer = QTimer()
-        self.heartbeat_timer.timeout.connect(self._check_connection)
-        self.heartbeat_interval = 3000  # 心跳间隔 3 秒
-        self.max_disconnect_duration = 8000  # 最大断开时长 8 秒
-
     def run(self):
-        # 创建 SocketIO 客户端
-        self.sio = socketio.Client()
+        self.running = True
+        print("[Polling] 开始轮询...")
+        self.connected.emit()
         
-        @self.sio.event
-        def connect():
-            print("[SocketIO] 已连接")
-            self.reconnect_count = 0
-            self.disconnect_time = None
-            self.connected.emit()
-            # 启动心跳检测
-            self.heartbeat_timer.start(self.heartbeat_interval)
-        
-        @self.sio.event
-        def disconnect():
-            print("[SocketIO] 已断开")
-            self.disconnect_time = time.time()
-            self.disconnected.emit()
-            # 停止心跳检测
-            self.heartbeat_timer.stop()
-            
-            # 如果重连次数未超过限制，尝试重连
-            if self.reconnect_count < self.max_reconnect_attempts:
-                self.reconnect_count += 1
-                print(f"[SocketIO] 第 {self.reconnect_count}/{self.max_reconnect_attempts} 次尝试重连...")
-                QTimer.singleShot(3000, self._reconnect)
-            else:
-                print(f"[SocketIO] 重连次数已达上限，请求关闭悬浮窗")
-                self.close_requested.emit()
-        
-        @self.sio.event
-        def connect_error(e):
-            print(f"[SocketIO] 连接错误: {e}")
-            if self.disconnect_time is None:
-                self.disconnect_time = time.time()
-            
-            # 如果重连次数未超过限制，尝试重连
-            if self.reconnect_count < self.max_reconnect_attempts:
-                self.reconnect_count += 1
-                print(f"[SocketIO] 第 {self.reconnect_count}/{self.max_reconnect_attempts} 次尝试重连...")
-                QTimer.singleShot(3000, self._reconnect)
-            else:
-                print(f"[SocketIO] 重连次数已达上限，请求关闭悬浮窗")
-                self.close_requested.emit()
-        
-        @self.sio.event
-        def captions(data):
-            print(f"[SocketIO] 收到 captions 消息: {data}")
-            msg_type = data.get('type', '')
-            if msg_type == 'original' and 'text' in data:
-                print(f"[SocketIO] 提取到原文: {data['text']}")
-                self.original_received.emit(data['text'])
-            elif msg_type == 'translation' and 'text' in data:
-                print(f"[SocketIO] 提取到译文: {data['text']}")
-                self.translation_token.emit(data['text'])
-            elif msg_type == 'translation-done':
-                print(f"[SocketIO] 翻译完成")
-        
-        @self.sio.event
-        def close_overlay():
-            print(f"[SocketIO] 收到关闭悬浮窗命令")
-            self.close_requested.emit()
-        
-        # 连接到服务器
-        try:
-            self.sio.connect(self.url)
-            # 保持线程运行
-            self.sio.wait()
-        except Exception as e:
-            print(f"[SocketIO] 连接失败: {e}")
-            QTimer.singleShot(3000, self._reconnect)
-    
-    def _check_connection(self):
-        """心跳检测：检查连接状态"""
-        if self.disconnect_time is not None:
-            elapsed = time.time() - self.disconnect_time
-            if elapsed >= self.max_disconnect_duration / 1000:
-                print(f"[SocketIO] 连接断开超过 {self.max_disconnect_duration/1000} 秒，请求关闭悬浮窗")
-                self.heartbeat_timer.stop()
-                self.close_requested.emit()
-
-    def _reconnect(self):
-        if self.sio:
+        while self.running:
             try:
-                self.sio.connect(self.url)
+                # 轮询翻译结果
+                response = requests.get(
+                    f"{self.api_base}/api/history",
+                    timeout=2
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('success') and data.get('data'):
+                        history = data['data']
+                        if history:
+                            latest = history[-1]
+                            translated = latest.get('translated', '')
+                            original = latest.get('original', '')
+                            
+                            # 如果有新的翻译结果
+                            if translated and translated != self.last_translation:
+                                self.last_translation = translated
+                                if original:
+                                    self.original_received.emit(original)
+                                self.translation_token.emit(translated)
+                
+                self.last_update = time.time()
+                
+            except requests.exceptions.ConnectionError:
+                if time.time() - self.last_update > 5:
+                    print("[Polling] 连接失败，等待服务器...")
+                    self.disconnected.emit()
+            
             except Exception as e:
-                print(f"[SocketIO] 重连失败: {e}")
-                QTimer.singleShot(3000, self._reconnect)
-
+                print(f"[Polling] 请求错误: {e}")
+            
+            # 每 500ms 轮询一次
+            self.msleep(500)
+        
+        print("[Polling] 轮询结束")
+    
     def stop(self):
-        if self.sio:
-            self.sio.disconnect()
+        self.running = False
 
 
 # ==================== 悬浮窗主界面 ====================
@@ -188,9 +130,10 @@ class OverlayWindow(QMainWindow):
         print("[Overlay] 初始化 OverlayWindow...")
         self._drag_pos = None
         self._current_translation = ""
+        self._last_history_count = 0
 
         self._init_ui()
-        self._init_socketio()
+        self._init_polling()
         print("[Overlay] OverlayWindow 初始化完成")
 
     def _init_ui(self):
@@ -226,7 +169,6 @@ class OverlayWindow(QMainWindow):
         self.close_button.setObjectName("closeButton")
         self.close_button.setFixedSize(28, 28)
         self.close_button.clicked.connect(self._on_close_requested)
-        # 将关闭按钮放在内容容器的右上角
         self.content_layout.addWidget(self.close_button, 0, Qt.AlignTop | Qt.AlignRight)
 
         # 原文
@@ -357,21 +299,23 @@ class OverlayWindow(QMainWindow):
             screen.height() - self.height() - 80
         )
 
-    def _init_socketio(self):
-        self.sio_client = SocketIOClient()
-        self.sio_client.original_received.connect(self._on_original)
-        self.sio_client.translation_token.connect(self._on_token)
-        self.sio_client.translation_done.connect(self._on_done)
-        self.sio_client.connected.connect(self._on_sio_connected)
-        self.sio_client.disconnected.connect(self._on_sio_disconnected)
-        self.sio_client.close_requested.connect(self._on_close_requested)
-        self.sio_client.start()
+    def _init_polling(self):
+        self.polling_client = PollingClient()
+        self.polling_client.original_received.connect(self._on_original)
+        self.polling_client.translation_token.connect(self._on_token)
+        self.polling_client.translation_done.connect(self._on_done)
+        self.polling_client.connected.connect(self._on_connected)
+        self.polling_client.disconnected.connect(self._on_disconnected)
+        self.polling_client.close_requested.connect(self._on_close_requested)
+        self.polling_client.start()
 
-    def _on_sio_connected(self):
+    def _on_connected(self):
+        print("[Overlay] 连接到服务器成功")
         self.status_label.setText("监听中")
         self.pulse_dot.setStyleSheet("#pulseDot { background: #34d399; border-radius: 4px; }")
 
-    def _on_sio_disconnected(self):
+    def _on_disconnected(self):
+        print("[Overlay] 连接到服务器失败")
         self.status_label.setText("重连中...")
         self.pulse_dot.setStyleSheet("#pulseDot { background: #6b7280; border-radius: 4px; }")
 
@@ -390,10 +334,8 @@ class OverlayWindow(QMainWindow):
 
     def _on_close_requested(self):
         print("[Overlay] 收到关闭请求，正在关闭悬浮窗...")
-        # 停止 SocketIO 客户端
-        self.sio_client.stop()
-        self.sio_client.wait()
-        # 关闭窗口
+        self.polling_client.stop()
+        self.polling_client.wait()
         self.close()
 
     # ---------- 拖拽 ----------
@@ -409,8 +351,8 @@ class OverlayWindow(QMainWindow):
         self._drag_pos = None
 
     def closeEvent(self, event):
-        if hasattr(self, 'sio_client'):
-            self.sio_client.stop()
+        if hasattr(self, 'polling_client'):
+            self.polling_client.stop()
         super().closeEvent(event)
 
 
