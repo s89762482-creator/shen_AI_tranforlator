@@ -26,18 +26,28 @@ const API = {
     async delete(endpoint) { return this.request(endpoint, { method: 'DELETE' }); },
 
     async healthCheck() { return this.get(CONFIG.ENDPOINTS.HEALTH); },
-    async transcribe(audioBlob) {
+    
+    // 语音识别，支持源语言参数
+    async transcribe(audioBlob, sourceLang = 'en') {
         const formData = new FormData();
         formData.append('audio', audioBlob, 'audio.webm');
+        formData.append('source_lang', sourceLang);
         return this.upload(CONFIG.ENDPOINTS.TRANSCRIBE, formData);
     },
-    async translateStream(text, targetLang = 'zh', onToken, onDone, onError) {
+    
+    // 流式翻译，支持源语言和目标语言参数
+    async translateStream(text, sourceLang = 'en', targetLang = 'zh', onToken, onDone, onError) {
         const url = `${CONFIG.API_BASE_URL}${CONFIG.ENDPOINTS.TRANSLATE_STREAM}`;
         try {
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text, target_lang: targetLang, engine: CONFIG.TRANSLATE_ENGINE }),
+                body: JSON.stringify({ 
+                    text, 
+                    source_lang: sourceLang,  // 源语言
+                    target_lang: targetLang,  // 目标语言
+                    engine: CONFIG.TRANSLATE_ENGINE 
+                }),
             });
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
@@ -65,8 +75,11 @@ const API = {
             }
         } catch (error) { if (onError) onError(error.message); }
     },
+    
     async getHistory() { return this.get(CONFIG.ENDPOINTS.HISTORY); },
     async clearHistory() { return this.delete(CONFIG.ENDPOINTS.HISTORY); },
+    async clearContext() { return this.post(CONFIG.ENDPOINTS.CONTEXT_CLEAR); },
+    async getContextInfo() { return this.get(CONFIG.ENDPOINTS.CONTEXT_INFO); },
     async startOverlay() { return this.post('/api/overlay/start'); },
-async stopOverlay() { return this.post('/api/overlay/stop'); },
+    async stopOverlay() { return this.post('/api/overlay/stop'); },
 };

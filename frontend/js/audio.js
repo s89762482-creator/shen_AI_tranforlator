@@ -1,6 +1,6 @@
 const AudioCapture = {
     isRunning: false,
-    audioSource: 'mic',
+    audioSource: 'system',
     currentStream: null,
     mediaRecorder: null,
     audioContext: null,
@@ -15,17 +15,14 @@ const AudioCapture = {
     onAudioChunk: null,
     onStatusChange: null,
 
-    async start(source = 'mic') {
+    async start(source = 'system') {
         if (this.isRunning) return;
         this.audioSource = source;
 
         try {
-            if (source === 'mic') {
-                this.currentStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            } else {
-                this.currentStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-                this.currentStream.getVideoTracks()[0].onended = () => this.stop();
-            }
+            // 只能使用系统音频模式
+            this.currentStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+            this.currentStream.getVideoTracks()[0].onended = () => this.stop();
 
             const audioTracks = this.currentStream.getAudioTracks();
             console.log('[Audio] 音频轨道数:', audioTracks.length);
@@ -38,15 +35,8 @@ const AudioCapture = {
             sourceNode.connect(this.analyser);
 
             let options = {};
-            if (source === 'system') {
-                if (MediaRecorder.isTypeSupported('audio/webm'))
-                    options = { mimeType: 'audio/webm', audioBitsPerSecond: 64000 };
-            } else {
-                if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus'))
-                    options = { mimeType: 'audio/webm;codecs=opus' };
-                else if (MediaRecorder.isTypeSupported('audio/webm'))
-                    options = { mimeType: 'audio/webm' };
-            }
+            if (MediaRecorder.isTypeSupported('audio/webm'))
+                options = { mimeType: 'audio/webm', audioBitsPerSecond: 64000 };
 
             this._audioChunks = [];
 
@@ -76,11 +66,8 @@ const AudioCapture = {
             try {
                 this.mediaRecorder.start(1000);
             } catch (e) {
-                if (source === 'system') {
-                    this._useAudioContextRecording();
-                    return;
-                }
-                throw e;
+                this._useAudioContextRecording();
+                return;
             }
 
             this.isRunning = true;
@@ -237,12 +224,6 @@ const AudioCapture = {
     },
 
     _calculateDynamicTimeout(speechDuration) {
-        /**
-         * 根据语音时长动态调整静音超时时间
-         * - 短语音（< 2秒）：使用较短超时，避免等待太久
-         * - 中等语音（2-5秒）：使用标准超时
-         * - 长语音（> 5秒）：使用较长超时，允许完整表达
-         */
         const baseTimeout = CONFIG.VAD.SILENCE_TIMEOUT || 1500;
         
         if (speechDuration < 2000) {

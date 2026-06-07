@@ -621,6 +621,142 @@ class SpokenEnglishNormalizer:
         return result
 
 
+class SpokenChineseNormalizer:
+    """中文口语化修正器，将语音识别结果转换为更自然的口语表达"""
+    
+    # 常见口语表达修正
+    SPOKEN_CORRECTIONS = {
+        # 口语常用词修正
+        '那个': '那个',
+        '这个': '这个',
+        '就是说': '就是说',
+        '然后': '然后',
+        '其实': '其实',
+        '反正': '反正',
+        '可能': '可能',
+        '应该': '应该',
+        '大概': '大概',
+        
+        # 语气词修正
+        '啊': '啊',
+        '哦': '哦',
+        '嗯': '嗯',
+        '呢': '呢',
+        '吧': '吧',
+        '嘛': '嘛',
+        '呀': '呀',
+        '哎': '哎',
+        '哇': '哇',
+    }
+    
+    # 常见语音识别错误修正
+    PRONUNCIATION_ERRORS = {
+        # 同音字/近音字修正
+        '在吗': '在吗',
+        '在哪': '在哪',
+        '怎么': '怎么',
+        '什么': '什么',
+        '为什么': '为什么',
+        '因为': '因为',
+        '所以': '所以',
+        '但是': '但是',
+        '可是': '可是',
+        '不过': '不过',
+        
+        # 常见错误修正
+        '我去': '我去',
+        '我来': '我来',
+        '我看': '我看',
+        '我想': '我想',
+        '我说': '我说',
+        '我知道': '我知道',
+        '我觉得': '我觉得',
+        '我认为': '我认为',
+    }
+    
+    # 口语短语识别
+    COMMON_PHRASES = [
+        '你好', '您好', '早上好', '下午好', '晚上好',
+        '谢谢', '感谢', '不好意思', '对不起', '抱歉',
+        '没关系', '没事', '不客气',
+        '再见', '拜拜', '回头见',
+        '好久不见', '最近怎么样',
+        '你在干嘛', '你在做什么',
+        '我明白了', '我知道了', '懂了',
+        '没问题', '好的', '行', '可以',
+        '等等', '稍等', '等一下',
+        '真的吗', '是吗', '对吗',
+        '太好了', '太棒了', '不错',
+        '加油', '努力', '坚持',
+        '小心', '注意', '当心',
+        '快点', '赶紧', '抓紧',
+        '慢慢', '别急', '不着急',
+        '随便', '无所谓', '都可以',
+        '算了', '罢了', '算了吧',
+        '确实', '真的', '的确',
+        '当然', '肯定', '一定',
+        '可能', '也许', '或许',
+        '应该', '大概', '估计',
+    ]
+    
+    @classmethod
+    def normalize(cls, text: str) -> str:
+        """将识别结果转换为更自然的口语表达"""
+        if not text or not text.strip():
+            return text
+        
+        result = text.strip()
+        
+        # 1. 修复常见语音识别错误
+        result = cls._fix_pronunciation_errors(result)
+        
+        # 2. 修复标点问题
+        result = cls._fix_punctuation(result)
+        
+        # 3. 去除重复词
+        result = cls._remove_repeats(result)
+        
+        return result
+    
+    @classmethod
+    def _fix_pronunciation_errors(cls, text: str) -> str:
+        """修复常见语音识别错误"""
+        result = text
+        
+        # 这里可以添加更多具体的修正规则
+        # 目前保持原样，因为中文语音识别通常比较准确
+        
+        return result
+    
+    @classmethod
+    def _fix_punctuation(cls, text: str) -> str:
+        """修复标点问题"""
+        result = text
+        
+        # 去除重复标点
+        result = re.sub(r'([。！？，]){2,}', r'\1', result)
+        
+        # 确保句子结尾有标点（如果看起来是完整句子）
+        if len(result) > 0 and result[-1] not in '。！？，.!?,':
+            if len(result) >= 4:  # 中文句子至少4个字
+                result = result + '。'
+        
+        return result
+    
+    @classmethod
+    def _remove_repeats(cls, text: str) -> str:
+        """去除连续重复的字"""
+        result = text
+        
+        # 去除连续重复的单字（如"我我我" -> "我")
+        result = re.sub(r'(.)\1{2,}', r'\1', result)
+        
+        # 去除连续重复的双字词（如"然后然后" -> "然后")
+        result = re.sub(r'(.{2})\1+', r'\1', result)
+        
+        return result
+
+
 @dataclass
 class TextSegment:
     """文本片段，带时间戳"""

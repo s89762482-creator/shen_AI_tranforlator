@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 # 导入修正模块
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from correction import CorrectionManager, SpokenEnglishNormalizer
+from correction import CorrectionManager, SpokenEnglishNormalizer, SpokenChineseNormalizer
 
 load_dotenv()
 
@@ -102,22 +102,36 @@ if os.getenv("DEEPSEEK_API_KEY"):
     except:
         pass
 
-# Vosk 模型路径
-VOSK_MODEL_PATH = r"C:\vosk-model"
-if not os.path.exists(VOSK_MODEL_PATH):
-    VOSK_MODEL_PATH = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        'vosk-model-small-en-us-0.15'
-    )
+# Vosk 模型路径 - 支持英文和中文
+# 优先使用不含中文的路径，避免 Vosk 库编码问题
+# 注意：中文模型有嵌套目录结构
+VOSK_MODEL_PATH_EN = r"D:\vosk_models\vosk-model-small-en-us-0.15"
+VOSK_MODEL_PATH_ZH = r"D:\vosk_models\vosk-model-small-cn-0.22\vosk-model-small-cn-0.22"
+
+# 如果 D 盘路径不存在，尝试使用项目内的模型（如果有）
+import os
+_project_root = os.path.dirname(os.path.abspath(__file__))
+if not os.path.exists(VOSK_MODEL_PATH_EN):
+    _alt_en = os.path.join(_project_root, 'vosk-model-small-en-us-0.15')
+    if os.path.exists(_alt_en):
+        VOSK_MODEL_PATH_EN = _alt_en
+
+if not os.path.exists(VOSK_MODEL_PATH_ZH):
+    _alt_zh = os.path.join(_project_root, 'vosk-model-small-cn-0.22', 'vosk-model-small-cn-0.22')
+    if os.path.exists(_alt_zh):
+        VOSK_MODEL_PATH_ZH = _alt_zh
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend')
 
 
 # ==================== 语言提示词 ====================
 
-def get_system_prompt(target_lang: str) -> str:
-    prompts = {
-        "zh": """你是一个专业的同声传译助手，擅长将英文翻译成地道、自然的中文口语。
+def get_system_prompt(source_lang: str, target_lang: str) -> str:
+    """根据源语言和目标语言获取翻译提示词"""
+    
+    # 英文 -> 中文
+    if source_lang == "en" and target_lang == "zh":
+        return """你是一个专业的同声传译助手，擅长将英文翻译成地道、自然的中文口语。
 
 翻译要求：
 1. 结合上下文进行翻译，保证语义连贯和自然
@@ -137,11 +151,547 @@ def get_system_prompt(target_lang: str) -> str:
 - "No worries" -> "没事儿"
 - "Long time no see" -> "好久不见啊"
 
-只输出翻译结果，不要添加任何解释。""",
-        "en": "You are a professional simultaneous interpreter. Polish and refine the following English text to be more natural and conversational. Consider the provided context for better accuracy. Output only the refined text, no explanations.",
-        "ja": "あなたはプロの同時通訳アシスタントです。以下の英語を自然で会話的な日本語に翻訳してください。提供された文脈を参考にしてより正確な翻訳を行ってください。説明は不要で、翻訳結果のみを出力してください。"
+只输出翻译结果，不要添加任何解释。"""
+    
+    # 英文 -> 日语
+    elif source_lang == "en" and target_lang == "ja":
+        return """あなたはプロの同時通訳アシスタントです。以下の英語を自然で会話的な日本語に翻訳してください。
+
+翻訳要求：
+1. 提供された文脈を参考にして、意味の連続性を保つ
+2. 日常的な口語表現を使用し、友人との会話のように自然に
+3. 直訳を避け、日本語の表現習慣に合わせる
+4. 短文を優先し、一文を長くしない
+5. 原意を保ちつつ、意訳を主とする
+6. スラングや慣用句は、対応する日本語の慣用表現に翻訳する
+
+例：
+- "I'm going to grab a bite to eat" -> "ちょっと食べに行くよ"
+- "That's a great idea" -> "いいアイデアだね"
+- "Let's call it a day" -> "今日はこれで終わりにしよう"
+- "No worries" -> "気にしないで"
+
+翻訳結果のみを出力し、説明は不要です。"""
+    
+    # 中文 -> 英文
+    elif source_lang == "zh" and target_lang == "en":
+        return """You are a professional simultaneous interpreter. Translate the following Chinese text into natural, conversational English.
+
+Translation requirements:
+1. Consider the provided context for coherent and natural translation
+2. Use everyday conversational expressions, like chatting with friends
+3. Avoid literal translation, follow English expression habits
+4. Keep sentences short and natural
+5. Preserve the original meaning, but prioritize sense-for-sense translation
+6. Translate idioms into corresponding English expressions
+
+Examples:
+- "我去吃点东西" -> "I'm going to grab a bite"
+- "这主意真不错" -> "That's a great idea"
+- "今天就到这里吧" -> "Let's call it a day"
+- "开玩笑啦" -> "I'm just kidding"
+- "没事儿" -> "No worries"
+
+Output only the translation, no explanations."""
+    
+    # 中文 -> 日语
+    elif source_lang == "zh" and target_lang == "ja":
+        return """あなたはプロの同時通訳アシスタントです。以下の中国語を自然で会話的な日本語に翻訳してください。
+
+翻訳要求：
+1. 提供された文脈を参考にして、意味の連続性を保つ
+2. 日常的な口語表現を使用し、友人との会話のように自然に
+3. 直訳を避け、日本語の表現習慣に合わせる
+4. 短文を優先し、一文を長くしない
+5. 原意を保ちつつ、意訳を主とする
+
+例：
+- "我去吃点东西" -> "ちょっと食べに行くよ"
+- "这主意真不错" -> "いいアイデアだね"
+- "今天就到这里吧" -> "今日はこれで終わりにしよう"
+- "没事儿" -> "気にしないで"
+
+翻訳結果のみを出力し、説明は不要です。"""
+    
+    # 默认：英文润色
+    elif source_lang == "en" and target_lang == "en":
+        return """You are a professional simultaneous interpreter. Polish and refine the following English text to be more natural and conversational. Consider the provided context for better accuracy. Output only the refined text, no explanations."""
+    
+    # 其他情况：通用翻译
+    else:
+        return f"""You are a professional simultaneous interpreter. Translate the following text into {target_lang}. Use natural, conversational expressions. Consider the provided context for better accuracy. Output only the translation, no explanations."""
+
+
+def has_complete_svo(text: str) -> bool:
+    """
+    检测句子是否具有完整的主谓宾结构
+    
+    Args:
+        text: 识别出的文本
+        
+    Returns:
+        True: 具有完整主谓宾结构
+        False: 缺少主语、谓语或宾语
+    """
+    if not text or not text.strip():
+        return False
+    
+    text = text.strip().lower()
+    words = text.split()
+    
+    # 主语列表
+    subjects = {
+        # 代词主语
+        'i', 'you', 'he', 'she', 'it', 'we', 'they',
+        'me', 'him', 'her', 'us', 'them',
+        'this', 'that', 'these', 'those',
+        'something', 'anything', 'everything', 'nothing',
+        'someone', 'anyone', 'everyone', 'no one',
+        'nobody', 'anybody', 'everybody', 'somebody',
+        # 常见名词主语（语音识别常见）
+        'i', 'you', 'we', 'they', 'people', 'person', 'man', 'woman', 'child',
+        'company', 'team', 'group', 'organization', 'government',
+        'time', 'day', 'week', 'month', 'year',
+        'money', 'work', 'job', 'life', 'world',
+        'way', 'thing', 'problem', 'solution', 'idea',
+        'system', 'process', 'method', 'approach', 'plan',
+        # 地点
+        'home', 'office', 'school', 'store', 'market', 'restaurant', 'hotel',
+        # 动作相关
+        'meeting', 'call', 'email', 'message', 'report', 'document', 'file',
     }
-    return prompts.get(target_lang, prompts["zh"])
+    
+    # 谓语动词列表（常见动作动词）
+    verbs = {
+        # 基本动作
+        'is', 'are', 'was', 'were', 'be', 'been', 'being',
+        'have', 'has', 'had',
+        'do', 'does', 'did',
+        'go', 'goes', 'went', 'going',
+        'get', 'gets', 'got', 'getting',
+        'make', 'makes', 'made',
+        'take', 'takes', 'took',
+        'give', 'gives', 'gave',
+        'say', 'says', 'said',
+        'see', 'sees', 'saw', 'seen',
+        'know', 'knows', 'knew', 'known',
+        'think', 'thinks', 'thought',
+        'want', 'wants', 'wanted',
+        'need', 'needs', 'needed',
+        'like', 'likes', 'liked',
+        'love', 'loves', 'loved',
+        'hate', 'hates', 'hated',
+        'feel', 'feels', 'felt',
+        'look', 'looks', 'looked',
+        'hear', 'hears', 'heard',
+        'read', 'reads', 'read',
+        'write', 'writes', 'wrote', 'written',
+        'speak', 'speaks', 'spoke', 'spoken',
+        'talk', 'talks', 'talked',
+        'tell', 'tells', 'told',
+        'ask', 'asks', 'asked',
+        'answer', 'answers', 'answered',
+        'work', 'works', 'worked',
+        'study', 'studies', 'studied',
+        'learn', 'learns', 'learned',
+        'teach', 'teaches', 'taught',
+        'help', 'helps', 'helped',
+        'show', 'shows', 'showed', 'shown',
+        'find', 'finds', 'found',
+        'lose', 'loses', 'lost',
+        'buy', 'buys', 'bought',
+        'sell', 'sells', 'sold',
+        'start', 'starts', 'started',
+        'stop', 'stops', 'stopped',
+        'begin', 'begins', 'began', 'begun',
+        'end', 'ends', 'ended',
+        'use', 'uses', 'used',
+        'create', 'creates', 'created',
+        'build', 'builds', 'built',
+        'run', 'runs', 'ran', 'running',
+        'walk', 'walks', 'walked',
+        'drive', 'drives', 'drove', 'driven',
+        'fly', 'flies', 'flew', 'flown',
+        'eat', 'eats', 'ate', 'eaten',
+        'drink', 'drinks', 'drank', 'drunk',
+        'sleep', 'sleeps', 'slept',
+        'wake', 'wakes', 'woke', 'woken',
+        'come', 'comes', 'came', 'come',
+        'leave', 'leaves', 'left',
+        'arrive', 'arrives', 'arrived',
+        'return', 'returns', 'returned',
+        'change', 'changes', 'changed',
+        'keep', 'keeps', 'kept',
+        'put', 'puts', 'put',
+        'set', 'sets', 'set',
+        'get', 'gets', 'got', 'getting',
+        'turn', 'turns', 'turned',
+        'move', 'moves', 'moved',
+        'stay', 'stays', 'stayed',
+        'live', 'lives', 'lived',
+        'believe', 'believes', 'believed',
+        'remember', 'remembers', 'remembered',
+        'forget', 'forgets', 'forgot', 'forgotten',
+        'understand', 'understands', 'understood',
+        'explain', 'explains', 'explained',
+        'discuss', 'discusses', 'discussed',
+        'decide', 'decides', 'decided',
+        'agree', 'agrees', 'agreed',
+        'disagree', 'disagrees', 'disagreed',
+        'try', 'tries', 'tried',
+        'hope', 'hopes', 'hoped',
+        'expect', 'expects', 'expected',
+        'plan', 'plans', 'planned',
+        'promise', 'promises', 'promised',
+        'offer', 'offers', 'offered',
+        'accept', 'accepts', 'accepted',
+        'refuse', 'refuses', 'refused',
+        'allow', 'allows', 'allowed',
+        'deny', 'denies', 'denied',
+        'need', 'needs', 'needed',
+        'must', 'should', 'would', 'could', 'may', 'might', 'can', 'will', 'shall',
+    }
+    
+    # 宾语名词列表
+    objects = {
+        # 代词宾语
+        'me', 'him', 'her', 'us', 'them', 'it',
+        # 常见名词（与主语类似，但更侧重于作为宾语）
+        'money', 'time', 'work', 'job', 'life', 'world',
+        'thing', 'problem', 'solution', 'idea', 'plan',
+        'information', 'data', 'report', 'document', 'file',
+        'email', 'message', 'call', 'meeting',
+        'home', 'office', 'school', 'store',
+        'food', 'water', 'drink', 'meal',
+        'book', 'paper', 'pen', 'computer', 'phone',
+        'help', 'advice', 'support',
+        'question', 'answer', 'reply',
+        'decision', 'choice', 'option',
+        'opportunity', 'chance', 'risk',
+        'result', 'effect', 'impact',
+        'change', 'difference', 'improvement',
+        'service', 'product', 'quality',
+        'price', 'cost', 'value',
+        'customer', 'client', 'user',
+        'team', 'group', 'company',
+        'system', 'process', 'method',
+        'way', 'path', 'direction',
+        'reason', 'cause', 'purpose',
+        'goal', 'target', 'objective',
+    }
+    
+    # 检测是否有主语
+    has_subject = False
+    subject_pos = -1
+    for i, word in enumerate(words):
+        word_clean = word.rstrip('.,;:!?"\'-')
+        if word_clean in subjects:
+            has_subject = True
+            subject_pos = i
+            break
+    
+    # 检测是否有谓语动词（在主语之后）
+    has_verb = False
+    verb_pos = -1
+    if has_subject:
+        for i in range(subject_pos + 1, len(words)):
+            word_clean = words[i].rstrip('.,;:!?"\'-')
+            if word_clean in verbs:
+                has_verb = True
+                verb_pos = i
+                break
+    
+    # 检测是否有宾语（在谓语之后）
+    has_object = False
+    if has_verb:
+        for i in range(verb_pos + 1, len(words)):
+            word_clean = words[i].rstrip('.,;:!?"\'-')
+            if word_clean in objects:
+                has_object = True
+                break
+    
+    # 特殊情况：动词后直接跟介词短语也算完整（如 "I go to school"）
+    if has_verb and not has_object:
+        prepositions = {'to', 'for', 'with', 'at', 'in', 'on', 'from', 'by', 'about', 'into'}
+        for i in range(verb_pos + 1, len(words)):
+            word_clean = words[i].rstrip('.,;:!?"\'-')
+            if word_clean in prepositions:
+                # 如果介词后面还有名词，也算完整
+                if i + 1 < len(words):
+                    has_object = True
+                    break
+    
+    # 特殊情况：系动词后接形容词也算完整（如 "I am happy"）
+    if has_verb and not has_object:
+        adjectives = {
+            'happy', 'sad', 'angry', 'tired', 'hungry', 'thirsty',
+            'good', 'bad', 'great', 'nice', 'beautiful', 'ugly',
+            'big', 'small', 'large', 'little', 'long', 'short',
+            'fast', 'slow', 'quick', 'slowly',
+            'new', 'old', 'young', 'old',
+            'hot', 'cold', 'warm', 'cool',
+            'easy', 'hard', 'difficult', 'simple',
+            'important', 'necessary', 'possible', 'impossible',
+            'ready', 'busy', 'free', 'available',
+            'late', 'early', 'on time',
+            'right', 'wrong', 'correct', 'true', 'false',
+        }
+        for i in range(verb_pos + 1, len(words)):
+            word_clean = words[i].rstrip('.,;:!?"\'-')
+            if word_clean in adjectives:
+                has_object = True
+                break
+    
+    result = has_subject and has_verb and has_object
+    print(f"[SVO Check] 主语:{has_subject} 谓语:{has_verb} 宾语:{has_object} | 完整:{result} | {text}")
+    return result
+
+
+def is_chinese_sentence_complete(text: str) -> bool:
+    """
+    中文句子完整性判断
+    
+    Args:
+        text: 中文文本
+        
+    Returns:
+        True: 句子完整
+        False: 句子不完整
+    """
+    if not text or not text.strip():
+        return False
+    
+    text = text.strip()
+    
+    # 中文连接词（这些词后面不应该断句）
+    chinese_connecting_words = [
+        '和', '跟', '与', '同', '及', '以及',
+        '但是', '可是', '不过', '然而', '却',
+        '因为', '所以', '如果', '假如', '要是',
+        '虽然', '尽管', '即使', '哪怕',
+        '当', '在', '从', '向', '往', '到',
+        '对', '对于', '关于', '通过', '经过',
+        '把', '被', '让', '给', '叫',
+        '着', '了', '过',  # 动词后缀，可能还有后续内容
+    ]
+    
+    # 检查是否以连接词结尾
+    for word in chinese_connecting_words:
+        if text.endswith(word):
+            print(f"[SentenceCheck-ZH] ✋ 以连接词 '{word}' 结尾，继续等待 | 原文: {text}")
+            return False
+    
+    # 检查是否以句子结束标点结尾
+    sentence_end_punctuation = ['.', '!', '?', '。', '！', '？', '…']
+    if text and text[-1] in sentence_end_punctuation:
+        print(f"[SentenceCheck-ZH] ✅ 以结束标点结尾，判定为完整 | 原文: {text}")
+        return True
+    
+    # 检查是否以逗号结尾（可能是句子中间）
+    if text.endswith(',') or text.endswith('，'):
+        print(f"[SentenceCheck-ZH] ✋ 以逗号结尾，继续等待 | 原文: {text}")
+        return False
+    
+    # 中文句子长度判断：如果句子足够长（>=10个字），认为完整
+    if len(text) >= 10:
+        print(f"[SentenceCheck-ZH] ✅ 句子较长（{len(text)}字），判定为完整 | 原文: {text}")
+        return True
+    
+    # 短句子：检查是否有完整的主谓结构
+    # 常见中文动词
+    chinese_verbs = ['是', '有', '在', '去', '来', '做', '说', '看', '听', '想', 
+                     '要', '能', '会', '可以', '应该', '需要', '喜欢', '知道', '觉得']
+    
+    has_verb = False
+    for verb in chinese_verbs:
+        if verb in text:
+            has_verb = True
+            break
+    
+    if has_verb and len(text) >= 4:
+        print(f"[SentenceCheck-ZH] ✅ 有动词且长度足够，判定为完整 | 原文: {text}")
+        return True
+    
+    # 其他情况：继续等待
+    print(f"[SentenceCheck-ZH] ⏳ 句子不完整，继续等待（{len(text)}字）| 原文: {text}")
+    return False
+
+
+def is_sentence_complete(text: str, language: str = "en") -> bool:
+    """
+    智能判断句子是否完整（结合主谓宾检测），支持多语言
+    
+    Args:
+        text: 识别出的文本
+        language: 语言代码（en/zh）
+        
+    Returns:
+        True: 句子完整，可以翻译
+        False: 句子不完整，需要继续等待
+    """
+    if not text or not text.strip():
+        return False
+    
+    original_text = text
+    text = text.strip()
+    
+    # 中文句子完整性判断
+    if language == "zh":
+        return is_chinese_sentence_complete(text)
+    
+    # 英文句子完整性判断（原有逻辑）
+    # 连接词列表（这些词后面不应该断句）
+    connecting_words = {
+        # 并列连词
+        'and': 'and',
+        'but': 'but', 
+        'or': 'or',
+        'nor': 'nor',
+        'so': 'so',
+        'yet': 'yet',
+        'for': 'for',
+        
+        # 介词（常见于句子中间）
+        'with': 'with',
+        'without': 'without',
+        'by': 'by',
+        'from': 'from',
+        'to': 'to',
+        'into': 'into',
+        'onto': 'onto',
+        'upon': 'upon',
+        'over': 'over',
+        'under': 'under',
+        'through': 'through',
+        'during': 'during',
+        'before': 'before',
+        'after': 'after',
+        'since': 'since',
+        'until': 'until',
+        
+        # 从属连词
+        'because': 'because',
+        'although': 'although',
+        'though': 'though',
+        'while': 'while',
+        'whereas': 'whereas',
+        'if': 'if',
+        'unless': 'unless',
+        'when': 'when',
+        'whenever': 'whenever',
+        'where': 'where',
+        'wherever': 'wherever',
+        'whether': 'whether',
+        
+        # 关系词
+        'that': 'that',
+        'which': 'which',
+        'who': 'who',
+        'whom': 'whom',
+        'whose': 'whose',
+        'what': 'what',
+        'how': 'how',
+        'why': 'why',
+        
+        # 其他常用词
+        'as': 'as',
+        'like': 'like',
+        'than': 'than',
+        'rather': 'rather',
+        'also': 'also',
+        'then': 'then',
+        'thus': 'thus',
+        'therefore': 'therefore',
+        'however': 'however',
+        'moreover': 'moreover',
+        'furthermore': 'furthermore',
+        'besides': 'besides',
+        'except': 'except',
+        'including': 'including',
+        'regarding': 'regarding',
+        'concerning': 'concerning',
+        
+        # 口语常用
+        'you know': 'you know',
+        'i mean': 'i mean',
+        'let me': 'let me',
+        'i think': 'i think',
+        'i guess': 'i guess',
+        'sort of': 'sort of',
+        'kind of': 'kind of',
+    }
+    
+    # 检查是否以连接词结尾
+    words = text.split()
+    if words:
+        last_word = words[-1].lower().strip()
+        # 去除可能的标点后检查
+        last_word_clean = last_word.rstrip('.,;:!?"\'-')
+        
+        # 检查最后一个单词
+        if last_word_clean in connecting_words:
+            print(f"[SentenceCheck] ✋ 以连接词 '{last_word_clean}' 结尾，继续等待 | 原文: {original_text}")
+            return False
+        
+        # 检查最后两个词（短语）
+        if len(words) >= 2:
+            last_two = ' '.join(words[-2:]).lower().strip()
+            last_two_clean = last_two.rstrip('.,;:!?"\'-')
+            if last_two_clean in connecting_words:
+                print(f"[SentenceCheck] ✋ 以连接词短语 '{last_two_clean}' 结尾，继续等待 | 原文: {original_text}")
+                return False
+    
+    # 检查是否以句子结束标点结尾
+    sentence_end_punctuation = ['.', '!', '?', '。', '！', '？']
+    if text and text[-1] in sentence_end_punctuation:
+        print(f"[SentenceCheck] ✅ 以结束标点结尾，判定为完整 | 原文: {original_text}")
+        return True
+    
+    # 检查是否以逗号结尾（可能是句子中间）
+    if text.endswith(','):
+        print(f"[SentenceCheck] ✋ 以逗号结尾，继续等待 | 原文: {original_text}")
+        return False
+    
+    # 检查是否是短句（少于4个词），可能是未完成的句子
+    if len(words) < 4:
+        print(f"[SentenceCheck] ⏳ 句子过短（{len(words)}词），继续等待 | 原文: {original_text}")
+        return False
+    
+    # 检查是否以常见不完整模式结尾
+    incomplete_patterns = [
+        'i am', 'im', 'you are', 'youre', 'he is', 'hes', 'she is', 'shes',
+        'it is', 'its', 'we are', 'were', 'they are', 'theyre',
+        'this is', 'that is', 'there is', 'theres', 'here is',
+        'going to', 'wanna', 'gonna', 'gotta', 'kinda', 'sorta',
+        'i think', 'i guess', 'i believe', 'i suppose',
+        'let me', 'i want', 'i need', 'i have',
+        'can you', 'could you', 'would you', 'will you',
+        'do you', 'did you', 'have you', 'are you',
+    ]
+    
+    last_phrase = ' '.join(words[-2:]).lower() if len(words) >= 2 else words[-1].lower()
+    for pattern in incomplete_patterns:
+        if last_phrase.endswith(pattern) or last_phrase == pattern:
+            print(f"[SentenceCheck] ✋ 以不完整模式 '{pattern}' 结尾，继续等待 | 原文: {original_text}")
+            return False
+    
+    # 主谓宾结构检测：只有具有完整主谓宾结构才认为句子完整
+    has_svo = has_complete_svo(text)
+    
+    # 如果有完整主谓宾结构，判定为完整句子
+    if has_svo:
+        print(f"[SentenceCheck] ✅ 具有完整主谓宾结构，判定为完整 | 原文: {original_text}")
+        return True
+    
+    # 如果句子足够长（>=10个词）且没有明显不完整模式，也认为完整（避免过度等待）
+    if len(words) >= 10:
+        print(f"[SentenceCheck] ⏳ 句子较长（{len(words)}词）但无完整主谓宾，继续等待 | 原文: {original_text}")
+        # 对于长句子，即使没有检测到完整主谓宾，也允许翻译（防止无限等待）
+        return True
+    
+    # 其他情况：继续等待
+    print(f"[SentenceCheck] ⏳ 句子不完整（无完整主谓宾），继续等待（{len(words)}词）| 原文: {original_text}")
+    return False
 
 
 def has_complete_svo(text: str) -> bool:
@@ -566,14 +1116,16 @@ def serve_js(filename):
 
 @app.route("/api/health", methods=["GET"])
 def health_check():
-    vosk_ok = os.path.exists(VOSK_MODEL_PATH)
+    vosk_en_ok = os.path.exists(VOSK_MODEL_PATH_EN)
+    vosk_zh_ok = os.path.exists(VOSK_MODEL_PATH_ZH)
     return jsonify({
         "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "services": {
             "openai": openai_client is not None,
             "deepseek": deepseek_client is not None,
-            "vosk": vosk_ok
+            "vosk_en": vosk_en_ok,
+            "vosk_zh": vosk_zh_ok
         }
     })
 
@@ -601,12 +1153,15 @@ def get_context_info():
 
 @app.route("/api/transcribe", methods=["POST"])
 def transcribe_audio():
-    """语音识别：Vosk 离线 > Whisper"""
+    """语音识别：Vosk 离线 > Whisper，支持多语言"""
     if "audio" not in request.files:
         return jsonify({"success": False, "error": "缺少音频文件"}), 400
 
     audio_file = request.files["audio"]
     audio_data = audio_file.read()
+    
+    # 获取源语言参数，默认为英文
+    source_lang = request.form.get("source_lang", "en")
 
     if len(audio_data) == 0:
         return jsonify({"success": False, "error": "音频文件为空"}), 400
@@ -616,23 +1171,32 @@ def transcribe_audio():
         audio_path = tmp.name
 
     try:
-        print(f"[Transcribe] 收到音频数据，大小: {len(audio_data)} 字节")
+        print(f"[Transcribe] 收到音频数据，大小: {len(audio_data)} 字节, 源语言: {source_lang}")
         
-        if os.path.exists(VOSK_MODEL_PATH):
-            print("[Transcribe] 尝试 Vosk 识别...")
-            text = _transcribe_with_vosk(audio_path)
+        # 根据源语言选择 Vosk 模型
+        vosk_model_path = VOSK_MODEL_PATH_EN if source_lang == "en" else VOSK_MODEL_PATH_ZH
+        
+        if os.path.exists(vosk_model_path):
+            print(f"[Transcribe] 尝试 Vosk 识别 ({source_lang})...")
+            text = _transcribe_with_vosk(audio_path, vosk_model_path)
             if text:
                 os.unlink(audio_path)
                 print(f"[Transcribe] Vosk 识别成功: {text}")
                 
-                # 应用口语化修正，使识别结果更符合日常口语表达
-                normalized_text = SpokenEnglishNormalizer.normalize(text)
-                if normalized_text != text:
-                    print(f"[Transcribe] 口语化修正: '{text}' -> '{normalized_text}'")
-                    text = normalized_text
+                # 应用口语化修正（根据源语言选择修正器）
+                if source_lang == "en":
+                    normalized_text = SpokenEnglishNormalizer.normalize(text)
+                    if normalized_text != text:
+                        print(f"[Transcribe] 口语化修正: '{text}' -> '{normalized_text}'")
+                        text = normalized_text
+                elif source_lang == "zh":
+                    normalized_text = SpokenChineseNormalizer.normalize(text)
+                    if normalized_text != text:
+                        print(f"[Transcribe] 中文口语化修正: '{text}' -> '{normalized_text}'")
+                        text = normalized_text
                 
                 # 智能判断句子是否完整
-                is_complete = is_sentence_complete(text)
+                is_complete = is_sentence_complete(text, source_lang)
                 
                 # 将识别结果添加到修正管理器
                 correction_manager.add_recognition(text)
@@ -644,6 +1208,7 @@ def transcribe_audio():
                 socketio.emit('recognition', {
                     'text': text, 
                     'engine': 'vosk',
+                    'source_lang': source_lang,
                     'is_complete': is_complete
                 })
                 return jsonify({
@@ -651,26 +1216,33 @@ def transcribe_audio():
                     "data": {
                         "text": text, 
                         "engine": "vosk",
+                        "source_lang": source_lang,
                         "is_complete": is_complete
                     }
                 })
             print("[Transcribe] Vosk 识别结果为空")
 
         if openai_client:
-            print("[Transcribe] 尝试 Whisper 识别...")
-            text = _transcribe_with_whisper(audio_path)
+            print(f"[Transcribe] 尝试 Whisper 识别 ({source_lang})...")
+            text = _transcribe_with_whisper(audio_path, source_lang)
             if text:
                 os.unlink(audio_path)
                 print(f"[Transcribe] Whisper 识别成功: {text}")
                 
-                # 应用口语化修正，使识别结果更符合日常口语表达
-                normalized_text = SpokenEnglishNormalizer.normalize(text)
-                if normalized_text != text:
-                    print(f"[Transcribe] 口语化修正: '{text}' -> '{normalized_text}'")
-                    text = normalized_text
+                # 应用口语化修正（根据源语言选择修正器）
+                if source_lang == "en":
+                    normalized_text = SpokenEnglishNormalizer.normalize(text)
+                    if normalized_text != text:
+                        print(f"[Transcribe] 口语化修正: '{text}' -> '{normalized_text}'")
+                        text = normalized_text
+                elif source_lang == "zh":
+                    normalized_text = SpokenChineseNormalizer.normalize(text)
+                    if normalized_text != text:
+                        print(f"[Transcribe] 中文口语化修正: '{text}' -> '{normalized_text}'")
+                        text = normalized_text
                 
                 # 智能判断句子是否完整
-                is_complete = is_sentence_complete(text)
+                is_complete = is_sentence_complete(text, source_lang)
                 
                 # 将识别结果添加到修正管理器
                 correction_manager.add_recognition(text)
@@ -679,10 +1251,20 @@ def transcribe_audio():
                 import asyncio
                 asyncio.ensure_future(correction_manager.correct_last())
                 
-                socketio.emit('recognition', {'text': text, 'engine': 'whisper-1', 'is_complete': is_complete})
+                socketio.emit('recognition', {
+                    'text': text, 
+                    'engine': 'whisper-1',
+                    'source_lang': source_lang,
+                    'is_complete': is_complete
+                })
                 return jsonify({
                     "success": True,
-                    "data": {"text": text, "engine": "whisper-1", "is_complete": is_complete}
+                    "data": {
+                        "text": text, 
+                        "engine": "whisper-1",
+                        "source_lang": source_lang,
+                        "is_complete": is_complete
+                    }
                 })
             print("[Transcribe] Whisper 识别结果为空")
 
@@ -696,8 +1278,8 @@ def transcribe_audio():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-def _transcribe_with_vosk(audio_path: str) -> str:
-    """Vosk 离线识别"""
+def _transcribe_with_vosk(audio_path: str, model_path: str) -> str:
+    """Vosk 离线识别，支持多语言"""
     try:
         from vosk import Model, KaldiRecognizer
         from pydub import AudioSegment
@@ -714,7 +1296,7 @@ def _transcribe_with_vosk(audio_path: str) -> str:
         if len(pcm_data) == 0:
             return ""
 
-        model = Model(VOSK_MODEL_PATH)
+        model = Model(model_path)
         rec = KaldiRecognizer(model, 16000)
         rec.SetWords(False)
 
@@ -740,14 +1322,14 @@ def _transcribe_with_vosk(audio_path: str) -> str:
         return ""
 
 
-def _transcribe_with_whisper(audio_path: str) -> str:
-    """Whisper 识别"""
+def _transcribe_with_whisper(audio_path: str, language: str = "en") -> str:
+    """Whisper 识别，支持多语言"""
     try:
         with open(audio_path, "rb") as f:
             transcript = openai_client.audio.transcriptions.create(
                 model="whisper-1",
                 file=f,
-                language="en",
+                language=language,
                 response_format="text"
             )
         return transcript
@@ -758,19 +1340,25 @@ def _transcribe_with_whisper(audio_path: str) -> str:
 
 @app.route("/api/translate/stream", methods=["POST"])
 def translate_stream():
-    """流式翻译（SSE） - 结合上下文"""
+    """流式翻译（SSE） - 结合上下文，支持多语言"""
     data = request.get_json()
     if not data or "text" not in data:
         return jsonify({"success": False, "error": "缺少翻译文本"}), 400
 
     text = data["text"].strip()
-    target_lang = data.get("target_lang", "zh")
+    source_lang = data.get("source_lang", "en")  # 源语言，默认英文
+    target_lang = data.get("target_lang", "zh")  # 目标语言，默认中文
     engine = data.get("engine", "deepseek")
 
     if not text:
         return jsonify({"success": False, "error": "翻译文本为空"}), 400
 
-    system_prompt = get_system_prompt(target_lang)
+    print(f"[Translate] 收到翻译请求 - 原文: {text}")
+    print(f"[Translate] 源语言: {source_lang}, 目标语言: {target_lang}, 引擎: {engine}")
+    print(f"[Translate] DeepSeek 客户端状态: {'已配置' if deepseek_client else '未配置'}")
+    print(f"[Translate] OpenAI 客户端状态: {'已配置' if openai_client else '未配置'}")
+
+    system_prompt = get_system_prompt(source_lang, target_lang)
     
     # 获取上下文
     context_prompt = translation_context.get_context_prompt()
@@ -784,13 +1372,18 @@ def translate_stream():
 
     if engine == "openai" and openai_client:
         client, model = openai_client, "gpt-4o"
+        print(f"[Translate] 使用 OpenAI (GPT-4o)")
     elif engine == "deepseek" and deepseek_client:
         client, model = deepseek_client, "deepseek-chat"
+        print(f"[Translate] 使用 DeepSeek")
     elif openai_client:
         client, model = openai_client, "gpt-4o"
+        print(f"[Translate] 备用: 使用 OpenAI (GPT-4o)")
     elif deepseek_client:
         client, model = deepseek_client, "deepseek-chat"
+        print(f"[Translate] 备用: 使用 DeepSeek")
     else:
+        print(f"[Translate] 错误: 未配置翻译服务")
         return jsonify({"success": False, "error": "未配置翻译服务"}), 503
 
     def generate():
@@ -819,6 +1412,14 @@ def translate_stream():
                 'target_lang': target_lang
             })
 
+            # 将翻译结果添加到历史记录
+            translation_history.append({
+                'original': text,
+                'translated': full_text,
+                'target_lang': target_lang,
+                'time': datetime.now().strftime("%H:%M:%S")
+            })
+
             # 将本次翻译结果添加到上下文
             translation_context.add(text, full_text)
             print(f"[Translate] 上下文已更新，当前长度: {len(translation_context.history)}")
@@ -842,12 +1443,7 @@ def translate_stream():
 
 @socketio.on('connect')
 def handle_connect():
-    print('[WebSocket] 客户端已连接')
-
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print('[WebSocket] 客户端已断开')
+    print('[WebSocket] 新的 Socket.IO 客户端已连接')
 
 
 @socketio.on('captions')
@@ -1067,10 +1663,16 @@ if __name__ == "__main__":
     debug = False
     use_reloader = False
 
-    if os.path.exists(VOSK_MODEL_PATH):
-        print("[OK] Vosk 模型已就绪:", VOSK_MODEL_PATH)
+    # 检查 Vosk 模型
+    if os.path.exists(VOSK_MODEL_PATH_EN):
+        print("[OK] Vosk 英文模型已就绪:", VOSK_MODEL_PATH_EN)
     else:
-        print("[WARN] Vosk 模型未找到:", VOSK_MODEL_PATH)
+        print("[WARN] Vosk 英文模型未找到:", VOSK_MODEL_PATH_EN)
+    
+    if os.path.exists(VOSK_MODEL_PATH_ZH):
+        print("[OK] Vosk 中文模型已就绪:", VOSK_MODEL_PATH_ZH)
+    else:
+        print("[WARN] Vosk 中文模型未找到:", VOSK_MODEL_PATH_ZH)
 
     print("[RUN] 服务启动: http://localhost:", port)
     print(f"[RUN] Debug模式: {debug}, 热重载: {use_reloader}")

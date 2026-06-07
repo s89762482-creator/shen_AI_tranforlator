@@ -1,6 +1,7 @@
 const Translator = {
     history: [],
-    targetLang: CONFIG.DEFAULT_TARGET_LANG,
+    sourceLang: CONFIG.DEFAULT_SOURCE_LANG,  // 源语言
+    targetLang: CONFIG.DEFAULT_TARGET_LANG,  // 目标语言
     _currentTranslation: '',
     _channel: null,
     _socket: null,
@@ -12,6 +13,12 @@ const Translator = {
     onTranslatedDone: null,
     onHistoryUpdate: null,
     onEngineReady: null,
+
+    // 设置源语言
+    setSourceLang(lang) {
+        this.sourceLang = lang;
+        console.log('[Translator] 源语言设置为:', lang);
+    },
 
     async init() {
         try {
@@ -87,13 +94,16 @@ const Translator = {
         console.log('[Translator] 目标语言已切换为:', langCode);
     },
 
-    async processAudio(audioBlob) {
+    async processAudio(audioBlob, sourceLang = null) {
+        // 使用传入的源语言或默认源语言
+        const lang = sourceLang || this.sourceLang;
+        
         try {
-            const result = await this._recognizeWithBackend(audioBlob);
+            const result = await this._recognizeWithBackend(audioBlob, lang);
             if (!result || !result.text || !result.text.trim()) return;
 
             const { text, is_complete } = result;
-            console.log('[Translator] 语音识别结果:', text, '是否完整:', is_complete);
+            console.log('[Translator] 语音识别结果:', text, '是否完整:', is_complete, '源语言:', lang);
             
             // 智能断句处理
             if (!is_complete) {
@@ -123,12 +133,13 @@ const Translator = {
             if (this.onOriginalText) this.onOriginalText(fullText);
             this._broadcast('original', { text: fullText });
             
-            // 调用翻译API进行翻译
+            // 调用翻译API进行翻译（包含源语言参数）
             this._currentTranslation = '';
             
             await API.translateStream(
                 fullText,
-                this.targetLang,
+                lang,  // 源语言
+                this.targetLang,  // 目标语言
                 // onToken - 流式翻译token
                 (token) => {
                     this._currentTranslation += token;
@@ -161,9 +172,9 @@ const Translator = {
         }
     },
 
-    async _recognizeWithBackend(audioBlob) {
+    async _recognizeWithBackend(audioBlob, sourceLang = 'en') {
         try {
-            const result = await API.transcribe(audioBlob);
+            const result = await API.transcribe(audioBlob, sourceLang);
             if (result.success && result.data.text) {
                 return {
                     text: result.data.text,
@@ -209,6 +220,7 @@ const Translator = {
         try {
             await API.translateStream(
                 fullText,
+                this.sourceLang,
                 this.targetLang,
                 (token) => {
                     this._currentTranslation += token;
