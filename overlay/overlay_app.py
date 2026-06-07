@@ -1,379 +1,201 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
-AI 同声传译 - 桌面悬浮窗
-PyQt5 无边框毛玻璃窗口 + HTTP 轮询获取翻译结果
+悬浮字幕应用 - 显示实时翻译结果
 """
+
 import sys
-import json
 import os
 import time
+import json
 import requests
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QLabel, QHBoxLayout, QGraphicsDropShadowEffect, QPushButton
-)
-from PySide6.QtCore import (
-    Qt, QTimer, QPoint, Signal, QThread, QObject
-)
-from PySide6.QtGui import QColor
+import threading
 
+try:
+    from PyQt5.QtWidgets import (
+        QApplication, QWidget, QLabel, QVBoxLayout,
+        QHBoxLayout, QSizePolicy
+    )
+    from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+    from PyQt5.QtGui import QFont, QColor
+except ImportError:
+    print("请安装 PyQt5: pip install pyqt5")
+    sys.exit(1)
 
-def _is_process_running(pid):
-    try:
-        if os.name == 'nt':
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(1, False, pid)
-            if handle != 0:
-                kernel32.CloseHandle(handle)
-                return True
-            return False
-        else:
-            return os.path.exists(f'/proc/{pid}')
-    except:
-        return False
+API_BASE_URL = "http://localhost:5000"
 
-
-def check_single_instance():
-    lock_file = os.path.join(os.path.dirname(__file__), 'overlay.lock')
+class TranscriptionHistory:
+    """管理翻译历史记录"""
     
-    if os.path.exists(lock_file):
-        try:
-            with open(lock_file, 'r') as f:
-                pid_str = f.read().strip()
-                if pid_str:
-                    pid = int(pid_str)
-                    if _is_process_running(pid):
-                        return False
-            os.remove(lock_file)
-        except:
-            try:
-                os.remove(lock_file)
-            except:
-                pass
+    def __init__(self, max_entries=10):
+        self.entries = []
+        self.max_entries = max_entries
     
-    try:
-        with open(lock_file, 'w') as f:
-            f.write(str(os.getpid()))
-        return True
-    except:
-        return False
-
-
-# ==================== HTTP 轮询客户端 ====================
-class PollingClient(QThread):
-    original_received = Signal(str)
-    translation_token = Signal(str)
-    translation_done = Signal(str)
-    connected = Signal()
-    disconnected = Signal()
-    close_requested = Signal()
-    
-    def __init__(self, api_base="http://localhost:5000"):
-        super().__init__()
-        self.api_base = api_base
-        print(f"[Polling] API 地址: {self.api_base}")
-        self.running = False
-        self.last_update = time.time()
-        self.last_translation = ""
+    def add(self, index, original, translation, timestamp):
+        entry = {
+            'index': index,
+            'original': original,
+            'translation': translation,
+            'timestamp': timestamp
+        }
+        self.entries.append(entry)
         
-    def run(self):
-        self.running = True
-        print("[Polling] 开始轮询...")
-        self.connected.emit()
-        
-        while self.running:
-            try:
-                # 轮询翻译结果
-                response = requests.get(
-                    f"{self.api_base}/api/history",
-                    timeout=2
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get('success') and data.get('data'):
-                        history = data['data']
-                        if history:
-                            latest = history[-1]
-                            translated = latest.get('translated', '')
-                            original = latest.get('original', '')
-                            
-                            # 如果有新的翻译结果
-                            if translated and translated != self.last_translation:
-                                self.last_translation = translated
-                                if original:
-                                    self.original_received.emit(original)
-                                self.translation_token.emit(translated)
-                
-                self.last_update = time.time()
-                
-            except requests.exceptions.ConnectionError:
-                if time.time() - self.last_update > 5:
-                    print("[Polling] 连接失败，等待服务器...")
-                    self.disconnected.emit()
-            
-            except Exception as e:
-                print(f"[Polling] 请求错误: {e}")
-            
-            # 每 500ms 轮询一次
-            self.msleep(500)
-        
-        print("[Polling] 轮询结束")
+        # 保持最大记录数
+        if len(self.entries) > self.max_entries:
+            self.entries.pop(0)
     
-    def stop(self):
-        self.running = False
+    def get_latest(self, count=3):
+        """获取最近的记录"""
+        return self.entries[-count:]
+    
+    def clear(self):
+        self.entries = []
 
-
-# ==================== 悬浮窗主界面 ====================
-class OverlayWindow(QMainWindow):
+class OverlayWindow(QWidget):
+    """悬浮字幕窗口"""
+    
+    new_transcription = pyqtSignal(dict)
+    
     def __init__(self):
         super().__init__()
-        print("[Overlay] 初始化 OverlayWindow...")
-        self._drag_pos = None
-        self._current_translation = ""
-        self._last_history_count = 0
-
-        self._init_ui()
-        self._init_polling()
-        print("[Overlay] OverlayWindow 初始化完成")
-
-    def _init_ui(self):
-        print("[Overlay] 开始构建 UI...")
-        self.setWindowTitle("翻译字幕")
+        self.history = TranscriptionHistory(max_entries=10)
+        self.init_ui()
+        self.init_polling()
+        
+        # 连接信号
+        self.new_transcription.connect(self.update_subtitles)
+    
+    def init_ui(self):
+        # 设置窗口属性 - 无边框、置顶、透明背景
         self.setWindowFlags(
             Qt.FramelessWindowHint |
             Qt.WindowStaysOnTopHint |
-            Qt.Tool |
-            Qt.X11BypassWindowManagerHint
+            Qt.Tool
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-
-        # 主控件
-        self.central = QWidget()
-        self.central.setObjectName("mainContainer")
-        self.setCentralWidget(self.central)
-
-        self.main_layout = QVBoxLayout(self.central)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-
-        # 内容容器
-        self.content_widget = QWidget()
-        self.content_widget.setObjectName("contentWidget")
-        self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(24, 20, 24, 18)
-        self.content_layout.setSpacing(10)
-
-        # 关闭按钮
-        self.close_button = QPushButton("×")
-        self.close_button.setObjectName("closeButton")
-        self.close_button.setFixedSize(28, 28)
-        self.close_button.clicked.connect(self._on_close_requested)
-        self.content_layout.addWidget(self.close_button, 0, Qt.AlignTop | Qt.AlignRight)
-
-        # 原文
-        self.original_label = QLabel()
-        self.original_label.setObjectName("originalLabel")
-        self.original_label.setAlignment(Qt.AlignCenter)
-        self.original_label.setWordWrap(True)
-        self.original_label.setMaximumWidth(700)
-        self.original_label.hide()
-
-        # 分隔线
-        self.divider = QWidget()
-        self.divider.setObjectName("divider")
-        self.divider.setFixedHeight(1)
-        self.divider.setFixedWidth(40)
-        self.divider.hide()
-
-        # 译文
-        self.translated_label = QLabel()
-        self.translated_label.setObjectName("translatedLabel")
-        self.translated_label.setAlignment(Qt.AlignCenter)
-        self.translated_label.setWordWrap(True)
-        self.translated_label.setMaximumWidth(700)
-
-        # 状态栏
-        self.status_widget = QWidget()
-        self.status_widget.setObjectName("statusWidget")
-        status_layout = QHBoxLayout(self.status_widget)
-        status_layout.setContentsMargins(12, 7, 12, 7)
-        status_layout.setSpacing(8)
-
-        self.pulse_dot = QLabel()
-        self.pulse_dot.setObjectName("pulseDot")
-        self.pulse_dot.setFixedSize(8, 8)
-
-        self.status_label = QLabel("连接中...")
-        self.status_label.setObjectName("statusLabel")
-
-        status_layout.addStretch()
-        status_layout.addWidget(self.pulse_dot)
-        status_layout.addWidget(self.status_label)
-        status_layout.addStretch()
-
-        # 组装
-        self.content_layout.addWidget(self.original_label)
-        self.content_layout.addWidget(self.divider, 0, Qt.AlignCenter)
-        self.content_layout.addWidget(self.translated_label)
-
-        self.main_layout.addWidget(self.content_widget)
-        self.main_layout.addSpacing(12)
-        self.main_layout.addWidget(self.status_widget, 0, Qt.AlignCenter)
-
-        # 阴影
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(40)
-        shadow.setColor(QColor(0, 0, 0, 160))
-        shadow.setOffset(0, 8)
-        self.content_widget.setGraphicsEffect(shadow)
-
-        # 样式
-        self.setStyleSheet("""
-            #contentWidget {
-                background: rgba(22, 22, 30, 0.82);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 20px;
-            }
-            #originalLabel {
-                color: rgba(255, 255, 255, 0.5);
-                font-size: 14px;
-                font-weight: 400;
-                font-family: -apple-system, "Microsoft YaHei", sans-serif;
-                padding: 2px 0;
-            }
-            #divider {
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 transparent,
-                    stop:0.5 rgba(255,255,255,0.12),
-                    stop:1 transparent
-                );
-            }
-            #translatedLabel {
-                color: #ffffff;
-                font-size: 20px;
-                font-weight: 700;
-                font-family: -apple-system, "Microsoft YaHei", sans-serif;
-                padding: 2px 0;
-            }
-            #statusWidget {
-                background: rgba(10, 10, 16, 0.85);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 16px;
-            }
-            #statusLabel {
-                color: rgba(255, 255, 255, 0.35);
-                font-size: 10px;
-                font-weight: 500;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }
-            #pulseDot {
-                background: #6b7280;
-                border-radius: 4px;
-            }
-            #closeButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
-                border-radius: 8px;
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 20px;
-                font-weight: 300;
-                padding: 0;
-                margin: 0;
-            }
-            #closeButton:hover {
-                background: rgba(239, 68, 68, 0.6);
-                color: #ffffff;
-            }
-            #closeButton:pressed {
-                background: rgba(239, 68, 68, 0.8);
-            }
-        """)
-
-        self.resize(600, 200)
-        screen = QApplication.primaryScreen().geometry()
-        self.move(
-            (screen.width() - self.width()) // 2,
-            screen.height() - self.height() - 80
+        
+        # 设置布局
+        self.layout = QVBoxLayout()
+        self.layout.setContentsMargins(10, 10, 10, 10)
+        self.setLayout(self.layout)
+        
+        # 创建字幕标签
+        self.subtitle_labels = []
+        for i in range(3):
+            label = QLabel()
+            label.setFont(QFont('Microsoft YaHei', 24, QFont.Bold))
+            label.setStyleSheet("""
+                QLabel {
+                    color: white;
+                    background-color: rgba(0, 0, 0, 0.7);
+                    padding: 8px 16px;
+                    border-radius: 8px;
+                }
+            """)
+            label.setAlignment(Qt.AlignCenter)
+            label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            label.setWordWrap(True)
+            self.subtitle_labels.append(label)
+            self.layout.addWidget(label)
+        
+        # 设置初始位置（屏幕底部居中）
+        self.resize(800, 150)
+        self.move_to_bottom_center()
+        
+        # 监听鼠标事件用于拖动
+        self.dragging = False
+        self.drag_start = None
+    
+    def move_to_bottom_center(self):
+        """将窗口移动到屏幕底部居中位置"""
+        screen_geometry = QApplication.desktop().screenGeometry()
+        x = (screen_geometry.width() - self.width()) // 2
+        y = screen_geometry.height() - self.height() - 50
+        self.move(x, y)
+    
+    def update_subtitles(self, data):
+        """更新字幕显示"""
+        # 添加到历史
+        self.history.add(
+            data.get('index', 0),
+            data.get('original', ''),
+            data.get('translation', ''),
+            data.get('timestamp', '')
         )
-
-    def _init_polling(self):
-        self.polling_client = PollingClient()
-        self.polling_client.original_received.connect(self._on_original)
-        self.polling_client.translation_token.connect(self._on_token)
-        self.polling_client.translation_done.connect(self._on_done)
-        self.polling_client.connected.connect(self._on_connected)
-        self.polling_client.disconnected.connect(self._on_disconnected)
-        self.polling_client.close_requested.connect(self._on_close_requested)
-        self.polling_client.start()
-
-    def _on_connected(self):
-        print("[Overlay] 连接到服务器成功")
-        self.status_label.setText("监听中")
-        self.pulse_dot.setStyleSheet("#pulseDot { background: #34d399; border-radius: 4px; }")
-
-    def _on_disconnected(self):
-        print("[Overlay] 连接到服务器失败")
-        self.status_label.setText("重连中...")
-        self.pulse_dot.setStyleSheet("#pulseDot { background: #6b7280; border-radius: 4px; }")
-
-    def _on_original(self, text):
-        self.original_label.setText(text)
-        self.original_label.show()
-        self.divider.show()
-
-    def _on_token(self, token):
-        self._current_translation = token
-        self.translated_label.setText(self._current_translation)
-
-    def _on_done(self, full_text):
-        self._current_translation = full_text
-        self.translated_label.setText(full_text)
-
-    def _on_close_requested(self):
-        print("[Overlay] 收到关闭请求，正在关闭悬浮窗...")
-        self.polling_client.stop()
-        self.polling_client.wait()
-        self.close()
-
-    # ---------- 拖拽 ----------
+        
+        # 获取最近3条记录
+        latest = self.history.get_latest(3)
+        
+        # 更新标签
+        for i, label in enumerate(self.subtitle_labels):
+            if i < len(latest):
+                entry = latest[i]
+                text = f"{entry['translation']}"
+                label.setText(text)
+                label.show()
+            else:
+                label.hide()
+    
+    def init_polling(self):
+        """初始化轮询线程"""
+        self.polling_thread = threading.Thread(target=self.polling_loop, daemon=True)
+        self.polling_thread.start()
+    
+    def polling_loop(self):
+        """轮询后端获取翻译结果"""
+        last_index = 0
+        
+        while True:
+            try:
+                # 轮询获取最新翻译
+                response = requests.get(
+                    f"{API_BASE_URL}/api/translations",
+                    timeout=5
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    if data and isinstance(data, list):
+                        # 查找未显示的新记录
+                        for entry in data:
+                            if entry.get('index', 0) > last_index:
+                                last_index = entry['index']
+                                # 发送信号更新UI
+                                self.new_transcription.emit(entry)
+            
+            except Exception as e:
+                # 连接失败时打印日志但继续轮询
+                print(f"[Polling] 连接失败: {str(e)}")
+            
+            # 每100ms轮询一次（优化同步速度）
+            time.sleep(0.1)
+    
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-
+            self.dragging = True
+            self.drag_start = event.globalPos() - self.pos()
+    
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
-            self.move(event.globalPos() - self._drag_pos)
-
+        if self.dragging:
+            self.move(event.globalPos() - self.drag_start)
+    
     def mouseReleaseEvent(self, event):
-        self._drag_pos = None
+        if event.button() == Qt.LeftButton:
+            self.dragging = False
 
-    def closeEvent(self, event):
-        if hasattr(self, 'polling_client'):
-            self.polling_client.stop()
-        super().closeEvent(event)
-
-
-if __name__ == "__main__":
-    print("[Overlay] 检查单例...")
-    result = check_single_instance()
-    print(f"[Overlay] 单例检查结果: {result}")
-    if not result:
-        print("[Overlay] 已有实例运行中，退出")
-        sys.exit(0)
-
-    print("[Overlay] 创建应用...")
+if __name__ == '__main__':
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)
-
-    print("[Overlay] 创建窗口...")
+    
+    # 设置应用程序属性
+    app.setApplicationName('AI Translation Overlay')
+    app.setQuitOnLastWindowClosed(True)
+    
     window = OverlayWindow()
-    
-    print("[Overlay] 显示窗口...")
     window.show()
-    print("[Overlay] 窗口已显示")
     
-    print("[Overlay] 进入事件循环...")
-    sys.exit(app.exec())
+    print("🖥️  悬浮字幕窗口已启动")
+    print("💡 提示：可以拖动窗口到任意位置")
+    
+    sys.exit(app.exec_())
