@@ -173,7 +173,12 @@ const AudioCapture = {
         if (!this.analyser) return;
         const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
         let isSpeaking = false, silenceStart = 0, speakingFrames = 0, silenceFrames = 0;
+        let speechStartTime = 0;
+        let totalSpeechDuration = 0;
 
+        // 英文句子结束标点（用于智能断句）
+        const sentenceEndPunctuation = ['.', '!', '?', '。', '！', '？'];
+        
         const check = () => {
             if (!this.isRunning) return;
             this.analyser.getByteFrequencyData(dataArray);
@@ -182,27 +187,70 @@ const AudioCapture = {
             const avgVolume = sum / dataArray.length;
             const threshold = Math.max(15, this._noiseFloor ? this._noiseFloor * 1.5 : 15);
 
+            // 动态调整静音超时时间（根据语音时长）
+            const dynamicSilenceTimeout = this._calculateDynamicTimeout(totalSpeechDuration);
+
             if (avgVolume > threshold) {
                 speakingFrames++; silenceFrames = 0;
-                if (!isSpeaking && speakingFrames > 3) isSpeaking = true;
+                if (!isSpeaking && speakingFrames > 3) {
+                    isSpeaking = true;
+                    speechStartTime = Date.now();
+                }
+                if (isSpeaking) {
+                    totalSpeechDuration = Date.now() - speechStartTime;
+                }
                 this.lastSpeechTime = Date.now();
             } else {
                 silenceFrames++; speakingFrames = 0;
                 if (!this._noiseFloor || avgVolume < this._noiseFloor)
                     this._noiseFloor = this._noiseFloor ? this._noiseFloor * 0.9 + avgVolume * 0.1 : avgVolume;
-                if (isSpeaking && silenceFrames > 8) { isSpeaking = false; silenceStart = Date.now(); }
+                if (isSpeaking && silenceFrames > 8) { 
+                    isSpeaking = false; 
+                    silenceStart = Date.now(); 
+                }
             }
 
-            if (!isSpeaking && silenceStart > 0 && Date.now() - silenceStart > CONFIG.VAD.SILENCE_TIMEOUT && this._audioChunks.length > 0) {
-                silenceStart = 0;
-                if (this.mediaRecorder && this.mediaRecorder.state === 'recording') this.mediaRecorder.requestData();
+            // 智能断句逻辑
+            if (!isSpeaking && silenceStart > 0 && Date.now() - silenceStart > dynamicSilenceTimeout && this._audioChunks.length > 0) {
+                // 检查是否达到最小语音时长
+                if (totalSpeechDuration >= (CONFIG.VAD.MIN_SPEECH_DURATION || 200)) {
+                    silenceStart = 0;
+                    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+                        this.mediaRecorder.requestData();
+                    }
+                    totalSpeechDuration = 0;
+                }
             }
-            if (isSpeaking && this._audioChunks.length > 20) {
-                if (this.mediaRecorder && this.mediaRecorder.state === 'recording') this.mediaRecorder.requestData();
+            
+            // 最大长度限制（防止单条音频过长）
+            if (isSpeaking && this._audioChunks.length > 30) {
+                if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+                    this.mediaRecorder.requestData();
+                }
                 isSpeaking = false;
+                totalSpeechDuration = 0;
             }
+            
             requestAnimationFrame(check);
         };
         check();
+    },
+
+    _calculateDynamicTimeout(speechDuration) {
+        /**
+         * 根据语音时长动态调整静音超时时间
+         * - 短语音（< 2秒）：使用较短超时，避免等待太久
+         * - 中等语音（2-5秒）：使用标准超时
+         * - 长语音（> 5秒）：使用较长超时，允许完整表达
+         */
+        const baseTimeout = CONFIG.VAD.SILENCE_TIMEOUT || 1500;
+        
+        if (speechDuration < 2000) {
+            return Math.min(baseTimeout, 1200);
+        } else if (speechDuration < 5000) {
+            return baseTimeout;
+        } else {
+            return Math.min(baseTimeout * 1.5, 3000);
+        }
     },
 };
