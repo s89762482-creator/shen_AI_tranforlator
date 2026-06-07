@@ -1,0 +1,28 @@
+# 核心依赖
+sounddevice
+numpy
+python-dotenv
+
+# Web 框架
+flask
+flask-cors
+flask-socketio
+
+# 语音识别
+vosk
+pydub
+
+# AI 翻译
+openai
+
+# TTS 语音合成
+edge-tts
+
+# 桌面悬浮窗
+PySide6
+
+# SocketIO 客户端（悬浮窗使用）
+python-socketio[client]
+
+# WebSocket 服务器
+eventlet

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>翻译字幕</title>
+    <style>
+        :root {
+            --bg-primary: rgba(22, 22, 30, 0.82);
+            --bg-status: rgba(10, 10, 16, 0.85);
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.5);
+            --text-muted: rgba(255, 255, 255, 0.35);
+            --accent: #5eeadb;
+            --accent-glow: rgba(94, 234, 219, 0.35);
+            --border: rgba(255, 255, 255, 0.06);
+            --border-strong: rgba(255, 255, 255, 0.12);
+            --shadow-lg: 0 30px 70px rgba(0, 0, 0, 0.6);
+            --radius-xl: 20px;
+            --radius-full: 9999px;
+            --transition-smooth: cubic-bezier(0.22, 0.61, 0.36, 1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            background: transparent;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Inter', sans-serif;
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            user-select: none;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .overlay-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .caption-card {
+            background: var(--bg-primary);
+            backdrop-filter: blur(50px) saturate(200%);
+            -webkit-backdrop-filter: blur(50px) saturate(200%);
+            border: none;
+            border-radius: var(--radius-xl);
+            padding: 18px 26px;
+            box-shadow: var(--shadow-lg);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 75vw;
+            min-width: 150px;
+            transition: all 0.35s var(--transition-smooth);
+        }
+
+        .caption-original {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 400;
+            line-height: 1.5;
+            min-height: 20px;
+            text-align: center;
+            opacity: 0;
+            transform: translateY(6px);
+            transition: all 0.35s var(--transition-smooth);
+        }
+
+        .caption-original.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .caption-original:empty { display: none; }
+
+        .caption-divider {
+            width: 32px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+            margin: 0 auto;
+            border-radius: 1px;
+        }
+
+        .caption-translated {
+            color: var(--text-primary);
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1.35;
+            letter-spacing: -0.2px;
+            min-height: 28px;
+            text-align: center;
+            text-shadow: 0 0 35px var(--accent-glow), 0 0 70px rgba(94, 234, 219, 0.12);
+            opacity: 0;
+            transform: translateY(4px);
+            transition: all 0.3s var(--transition-smooth);
+        }
+
+        .caption-translated.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .caption-translated:empty::after {
+            content: '';
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background: var(--accent);
+            margin-left: 1px;
+            vertical-align: text-bottom;
+            animation: cursorBlink 0.7s step-end infinite;
+            border-radius: 1px;
+            box-shadow: 0 0 6px var(--accent-glow);
+        }
+
+        @keyframes cursorBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        .caption-translated.done:empty::after { display: none; }
+        .caption-translated.done { text-shadow: 0 0 15px rgba(255, 255, 255, 0.05); }
+
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(16px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .overlay-container.entering .caption-card {
+            animation: fadeSlideUp 0.5s var(--transition-smooth) forwards;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-primary: rgba(255, 255, 255, 0.65);
+                --bg-status: rgba(255, 255, 255, 0.75);
+                --text-primary: #0f172a;
+                --text-secondary: rgba(15, 23, 42, 0.5);
+                --text-muted: rgba(15, 23, 42, 0.35);
+                --border: rgba(0, 0, 0, 0.05);
+                --border-strong: rgba(0, 0, 0, 0.08);
+                --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay-container entering" id="overlayContainer">
+        <div class="caption-card">
+            <div class="caption-original" id="originalText"></div>
+            <div class="caption-divider"></div>
+            <div class="caption-translated" id="translatedText"></div>
+        </div>
+    </div>
+
+    <script>
+        const channel = new BroadcastChannel('translator-captions');
+        const originalText = document.getElementById('originalText');
+        const translatedText = document.getElementById('translatedText');
+
+        let translationTimeout = null;
+
+        translatedText.textContent = '等待翻译...';
+        translatedText.classList.add('visible');
+
+        console.log('[Overlay] 悬浮窗已启动，等待数据...');
+
+        channel.onmessage = (event) => {
+            console.log('[Overlay] 收到消息:', event.data);
+            const data = event.data;
+            switch (data.type) {
+                case 'original':
+                    if (data.text) {
+                        originalText.textContent = data.text;
+                        originalText.classList.add('visible');
+                    }
+                    break;
+                case 'translation':
+                    if (data.text) {
+                        translatedText.textContent = data.text;
+                        translatedText.classList.remove('done');
+                        translatedText.classList.add('visible');
+                    }
+                    if (translationTimeout) clearTimeout(translationTimeout);
+                    break;
+                case 'translation-done':
+                    translatedText.classList.add('done');
+                    translationTimeout = setTimeout(() => {
+                        originalText.classList.remove('visible');
+                        originalText.textContent = '';
+                    }, 5000);
+                    break;
+                case 'close':
+                    window.close();
+                    break;
+            }
+        };
+
+        window.addEventListener('beforeunload', () => {
+            channel.postMessage({ type: 'overlay-closed' });
+        });
+    </script>
+</body>
+</html>
