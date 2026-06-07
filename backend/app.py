@@ -694,6 +694,402 @@ def is_sentence_complete(text: str, language: str = "en") -> bool:
     return False
 
 
+def has_complete_svo(text: str) -> bool:
+    """
+    检测句子是否具有完整的主谓宾结构
+    
+    Args:
+        text: 识别出的文本
+        
+    Returns:
+        True: 具有完整主谓宾结构
+        False: 缺少主语、谓语或宾语
+    """
+    if not text or not text.strip():
+        return False
+    
+    text = text.strip().lower()
+    words = text.split()
+    
+    # 主语列表
+    subjects = {
+        # 代词主语
+        'i', 'you', 'he', 'she', 'it', 'we', 'they',
+        'me', 'him', 'her', 'us', 'them',
+        'this', 'that', 'these', 'those',
+        'something', 'anything', 'everything', 'nothing',
+        'someone', 'anyone', 'everyone', 'no one',
+        'nobody', 'anybody', 'everybody', 'somebody',
+        # 常见名词主语（语音识别常见）
+        'i', 'you', 'we', 'they', 'people', 'person', 'man', 'woman', 'child',
+        'company', 'team', 'group', 'organization', 'government',
+        'time', 'day', 'week', 'month', 'year',
+        'money', 'work', 'job', 'life', 'world',
+        'way', 'thing', 'problem', 'solution', 'idea',
+        'system', 'process', 'method', 'approach', 'plan',
+        # 地点
+        'home', 'office', 'school', 'store', 'market', 'restaurant', 'hotel',
+        # 动作相关
+        'meeting', 'call', 'email', 'message', 'report', 'document', 'file',
+    }
+    
+    # 谓语动词列表（常见动作动词）
+    verbs = {
+        # 基本动作
+        'is', 'are', 'was', 'were', 'be', 'been', 'being',
+        'have', 'has', 'had',
+        'do', 'does', 'did',
+        'go', 'goes', 'went', 'going',
+        'get', 'gets', 'got', 'getting',
+        'make', 'makes', 'made',
+        'take', 'takes', 'took',
+        'give', 'gives', 'gave',
+        'say', 'says', 'said',
+        'see', 'sees', 'saw', 'seen',
+        'know', 'knows', 'knew', 'known',
+        'think', 'thinks', 'thought',
+        'want', 'wants', 'wanted',
+        'need', 'needs', 'needed',
+        'like', 'likes', 'liked',
+        'love', 'loves', 'loved',
+        'hate', 'hates', 'hated',
+        'feel', 'feels', 'felt',
+        'look', 'looks', 'looked',
+        'hear', 'hears', 'heard',
+        'read', 'reads', 'read',
+        'write', 'writes', 'wrote', 'written',
+        'speak', 'speaks', 'spoke', 'spoken',
+        'talk', 'talks', 'talked',
+        'tell', 'tells', 'told',
+        'ask', 'asks', 'asked',
+        'answer', 'answers', 'answered',
+        'work', 'works', 'worked',
+        'study', 'studies', 'studied',
+        'learn', 'learns', 'learned',
+        'teach', 'teaches', 'taught',
+        'help', 'helps', 'helped',
+        'show', 'shows', 'showed', 'shown',
+        'find', 'finds', 'found',
+        'lose', 'loses', 'lost',
+        'buy', 'buys', 'bought',
+        'sell', 'sells', 'sold',
+        'start', 'starts', 'started',
+        'stop', 'stops', 'stopped',
+        'begin', 'begins', 'began', 'begun',
+        'end', 'ends', 'ended',
+        'use', 'uses', 'used',
+        'create', 'creates', 'created',
+        'build', 'builds', 'built',
+        'run', 'runs', 'ran', 'running',
+        'walk', 'walks', 'walked',
+        'drive', 'drives', 'drove', 'driven',
+        'fly', 'flies', 'flew', 'flown',
+        'eat', 'eats', 'ate', 'eaten',
+        'drink', 'drinks', 'drank', 'drunk',
+        'sleep', 'sleeps', 'slept',
+        'wake', 'wakes', 'woke', 'woken',
+        'come', 'comes', 'came', 'come',
+        'leave', 'leaves', 'left',
+        'arrive', 'arrives', 'arrived',
+        'return', 'returns', 'returned',
+        'change', 'changes', 'changed',
+        'keep', 'keeps', 'kept',
+        'put', 'puts', 'put',
+        'set', 'sets', 'set',
+        'get', 'gets', 'got', 'getting',
+        'turn', 'turns', 'turned',
+        'move', 'moves', 'moved',
+        'stay', 'stays', 'stayed',
+        'live', 'lives', 'lived',
+        'believe', 'believes', 'believed',
+        'remember', 'remembers', 'remembered',
+        'forget', 'forgets', 'forgot', 'forgotten',
+        'understand', 'understands', 'understood',
+        'explain', 'explains', 'explained',
+        'discuss', 'discusses', 'discussed',
+        'decide', 'decides', 'decided',
+        'agree', 'agrees', 'agreed',
+        'disagree', 'disagrees', 'disagreed',
+        'try', 'tries', 'tried',
+        'hope', 'hopes', 'hoped',
+        'expect', 'expects', 'expected',
+        'plan', 'plans', 'planned',
+        'promise', 'promises', 'promised',
+        'offer', 'offers', 'offered',
+        'accept', 'accepts', 'accepted',
+        'refuse', 'refuses', 'refused',
+        'allow', 'allows', 'allowed',
+        'deny', 'denies', 'denied',
+        'need', 'needs', 'needed',
+        'must', 'should', 'would', 'could', 'may', 'might', 'can', 'will', 'shall',
+    }
+    
+    # 宾语名词列表
+    objects = {
+        # 代词宾语
+        'me', 'him', 'her', 'us', 'them', 'it',
+        # 常见名词（与主语类似，但更侧重于作为宾语）
+        'money', 'time', 'work', 'job', 'life', 'world',
+        'thing', 'problem', 'solution', 'idea', 'plan',
+        'information', 'data', 'report', 'document', 'file',
+        'email', 'message', 'call', 'meeting',
+        'home', 'office', 'school', 'store',
+        'food', 'water', 'drink', 'meal',
+        'book', 'paper', 'pen', 'computer', 'phone',
+        'help', 'advice', 'support',
+        'question', 'answer', 'reply',
+        'decision', 'choice', 'option',
+        'opportunity', 'chance', 'risk',
+        'result', 'effect', 'impact',
+        'change', 'difference', 'improvement',
+        'service', 'product', 'quality',
+        'price', 'cost', 'value',
+        'customer', 'client', 'user',
+        'team', 'group', 'company',
+        'system', 'process', 'method',
+        'way', 'path', 'direction',
+        'reason', 'cause', 'purpose',
+        'goal', 'target', 'objective',
+    }
+    
+    # 检测是否有主语
+    has_subject = False
+    subject_pos = -1
+    for i, word in enumerate(words):
+        word_clean = word.rstrip('.,;:!?"\'-')
+        if word_clean in subjects:
+            has_subject = True
+            subject_pos = i
+            break
+    
+    # 检测是否有谓语动词（在主语之后）
+    has_verb = False
+    verb_pos = -1
+    if has_subject:
+        for i in range(subject_pos + 1, len(words)):
+            word_clean = words[i].rstrip('.,;:!?"\'-')
+            if word_clean in verbs:
+                has_verb = True
+                verb_pos = i
+                break
+    
+    # 检测是否有宾语（在谓语之后）
+    has_object = False
+    if has_verb:
+        for i in range(verb_pos + 1, len(words)):
+            word_clean = words[i].rstrip('.,;:!?"\'-')
+            if word_clean in objects:
+                has_object = True
+                break
+    
+    # 特殊情况：动词后直接跟介词短语也算完整（如 "I go to school"）
+    if has_verb and not has_object:
+        prepositions = {'to', 'for', 'with', 'at', 'in', 'on', 'from', 'by', 'about', 'into'}
+        for i in range(verb_pos + 1, len(words)):
+            word_clean = words[i].rstrip('.,;:!?"\'-')
+            if word_clean in prepositions:
+                # 如果介词后面还有名词，也算完整
+                if i + 1 < len(words):
+                    has_object = True
+                    break
+    
+    # 特殊情况：系动词后接形容词也算完整（如 "I am happy"）
+    if has_verb and not has_object:
+        adjectives = {
+            'happy', 'sad', 'angry', 'tired', 'hungry', 'thirsty',
+            'good', 'bad', 'great', 'nice', 'beautiful', 'ugly',
+            'big', 'small', 'large', 'little', 'long', 'short',
+            'fast', 'slow', 'quick', 'slowly',
+            'new', 'old', 'young', 'old',
+            'hot', 'cold', 'warm', 'cool',
+            'easy', 'hard', 'difficult', 'simple',
+            'important', 'necessary', 'possible', 'impossible',
+            'ready', 'busy', 'free', 'available',
+            'late', 'early', 'on time',
+            'right', 'wrong', 'correct', 'true', 'false',
+        }
+        for i in range(verb_pos + 1, len(words)):
+            word_clean = words[i].rstrip('.,;:!?"\'-')
+            if word_clean in adjectives:
+                has_object = True
+                break
+    
+    result = has_subject and has_verb and has_object
+    print(f"[SVO Check] 主语:{has_subject} 谓语:{has_verb} 宾语:{has_object} | 完整:{result} | {text}")
+    return result
+
+
+def is_sentence_complete(text: str) -> bool:
+    """
+    智能判断句子是否完整（结合主谓宾检测）
+    
+    Args:
+        text: 识别出的文本
+        
+    Returns:
+        True: 句子完整，可以翻译
+        False: 句子不完整，需要继续等待
+    """
+    if not text or not text.strip():
+        return False
+    
+    original_text = text
+    text = text.strip()
+    
+    # 连接词列表（这些词后面不应该断句）
+    connecting_words = {
+        # 并列连词
+        'and': 'and',
+        'but': 'but', 
+        'or': 'or',
+        'nor': 'nor',
+        'so': 'so',
+        'yet': 'yet',
+        'for': 'for',
+        
+        # 介词（常见于句子中间）
+        'with': 'with',
+        'without': 'without',
+        'by': 'by',
+        'from': 'from',
+        'to': 'to',
+        'into': 'into',
+        'onto': 'onto',
+        'upon': 'upon',
+        'over': 'over',
+        'under': 'under',
+        'through': 'through',
+        'during': 'during',
+        'before': 'before',
+        'after': 'after',
+        'since': 'since',
+        'until': 'until',
+        
+        # 从属连词
+        'because': 'because',
+        'although': 'although',
+        'though': 'though',
+        'while': 'while',
+        'whereas': 'whereas',
+        'if': 'if',
+        'unless': 'unless',
+        'when': 'when',
+        'whenever': 'whenever',
+        'where': 'where',
+        'wherever': 'wherever',
+        'whether': 'whether',
+        
+        # 关系词
+        'that': 'that',
+        'which': 'which',
+        'who': 'who',
+        'whom': 'whom',
+        'whose': 'whose',
+        'what': 'what',
+        'how': 'how',
+        'why': 'why',
+        
+        # 其他常用词
+        'as': 'as',
+        'like': 'like',
+        'than': 'than',
+        'rather': 'rather',
+        'also': 'also',
+        'then': 'then',
+        'thus': 'thus',
+        'therefore': 'therefore',
+        'however': 'however',
+        'moreover': 'moreover',
+        'furthermore': 'furthermore',
+        'besides': 'besides',
+        'except': 'except',
+        'including': 'including',
+        'regarding': 'regarding',
+        'concerning': 'concerning',
+        
+        # 口语常用
+        'you know': 'you know',
+        'i mean': 'i mean',
+        'let me': 'let me',
+        'i think': 'i think',
+        'i guess': 'i guess',
+        'sort of': 'sort of',
+        'kind of': 'kind of',
+    }
+    
+    # 检查是否以连接词结尾
+    words = text.split()
+    if words:
+        last_word = words[-1].lower().strip()
+        # 去除可能的标点后检查
+        last_word_clean = last_word.rstrip('.,;:!?"\'-')
+        
+        # 检查最后一个单词
+        if last_word_clean in connecting_words:
+            print(f"[SentenceCheck] ✋ 以连接词 '{last_word_clean}' 结尾，继续等待 | 原文: {original_text}")
+            return False
+        
+        # 检查最后两个词（短语）
+        if len(words) >= 2:
+            last_two = ' '.join(words[-2:]).lower().strip()
+            last_two_clean = last_two.rstrip('.,;:!?"\'-')
+            if last_two_clean in connecting_words:
+                print(f"[SentenceCheck] ✋ 以连接词短语 '{last_two_clean}' 结尾，继续等待 | 原文: {original_text}")
+                return False
+    
+    # 检查是否以句子结束标点结尾
+    sentence_end_punctuation = ['.', '!', '?', '。', '！', '？']
+    if text and text[-1] in sentence_end_punctuation:
+        print(f"[SentenceCheck] ✅ 以结束标点结尾，判定为完整 | 原文: {original_text}")
+        return True
+    
+    # 检查是否以逗号结尾（可能是句子中间）
+    if text.endswith(','):
+        print(f"[SentenceCheck] ✋ 以逗号结尾，继续等待 | 原文: {original_text}")
+        return False
+    
+    # 检查是否是短句（少于4个词），可能是未完成的句子
+    if len(words) < 4:
+        print(f"[SentenceCheck] ⏳ 句子过短（{len(words)}词），继续等待 | 原文: {original_text}")
+        return False
+    
+    # 检查是否以常见不完整模式结尾
+    incomplete_patterns = [
+        'i am', 'im', 'you are', 'youre', 'he is', 'hes', 'she is', 'shes',
+        'it is', 'its', 'we are', 'were', 'they are', 'theyre',
+        'this is', 'that is', 'there is', 'theres', 'here is',
+        'going to', 'wanna', 'gonna', 'gotta', 'kinda', 'sorta',
+        'i think', 'i guess', 'i believe', 'i suppose',
+        'let me', 'i want', 'i need', 'i have',
+        'can you', 'could you', 'would you', 'will you',
+        'do you', 'did you', 'have you', 'are you',
+    ]
+    
+    last_phrase = ' '.join(words[-2:]).lower() if len(words) >= 2 else words[-1].lower()
+    for pattern in incomplete_patterns:
+        if last_phrase.endswith(pattern) or last_phrase == pattern:
+            print(f"[SentenceCheck] ✋ 以不完整模式 '{pattern}' 结尾，继续等待 | 原文: {original_text}")
+            return False
+    
+    # 主谓宾结构检测：只有具有完整主谓宾结构才认为句子完整
+    has_svo = has_complete_svo(text)
+    
+    # 如果有完整主谓宾结构，判定为完整句子
+    if has_svo:
+        print(f"[SentenceCheck] ✅ 具有完整主谓宾结构，判定为完整 | 原文: {original_text}")
+        return True
+    
+    # 如果句子足够长（>=10个词）且没有明显不完整模式，也认为完整（避免过度等待）
+    if len(words) >= 10:
+        print(f"[SentenceCheck] ⏳ 句子较长（{len(words)}词）但无完整主谓宾，继续等待 | 原文: {original_text}")
+        # 对于长句子，即使没有检测到完整主谓宾，也允许翻译（防止无限等待）
+        return True
+    
+    # 其他情况：继续等待
+    print(f"[SentenceCheck] ⏳ 句子不完整（无完整主谓宾），继续等待（{len(words)}词）| 原文: {original_text}")
+    return False
+
+
 # ==================== 静态文件托管 ====================
 
 @app.route('/')

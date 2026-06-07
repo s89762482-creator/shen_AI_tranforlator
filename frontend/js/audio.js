@@ -163,6 +163,9 @@ const AudioCapture = {
         let speechStartTime = 0;
         let totalSpeechDuration = 0;
 
+        // 英文句子结束标点（用于智能断句）
+        const sentenceEndPunctuation = ['.', '!', '?', '。', '！', '？'];
+        
         const check = () => {
             if (!this.isRunning) return;
             this.analyser.getByteFrequencyData(dataArray);
